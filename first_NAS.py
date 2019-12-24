@@ -10,10 +10,13 @@ import requests #requests to ask to download info
 import pickle #To serialise/deserialise dataset
 import gzip #data zipped initially
 
+import matplotlib.pyplot as plt
 from matplotlib import pyplot #display the data images
 import numpy as np #use numpy
 
 import torch
+import torchvision
+
 import random
 import math #various math operations
 
@@ -25,6 +28,9 @@ from torch.utils.data import TensorDataset
 from torch.utils.data import DataLoader
 
 import pdb #debugging
+
+import multiprocessing as mp
+from torch.utils.tensorboard import SummaryWriter
 
 DATA_PATH = Path("data")
 PATH = DATA_PATH / "mnist"
@@ -41,15 +47,15 @@ if not (PATH / FILENAME).exists():  #don't download if already exists
 #deserialize 
 with gzip.open((PATH / FILENAME).as_posix(), "rb") as f:
         ((x_train, y_train), (x_valid, y_valid), _) = pickle.load(f, encoding="latin-1")    #deserialize the data
-        
 
 #convert to tensor, numpy arrays are mapped to tensors
 x_train, y_train, x_valid, y_valid = map(
     torch.tensor, (x_train, y_train, x_valid, y_valid)
 )
 n, c = x_train.shape
-print('train data X ',x_train, '\ntrain data Y ', y_train)
+#print('train data X ',x_train, '\ntrain data Y ', y_train)
 print('train shape ',x_train.shape)
+print('test shape ',x_valid.shape)
 print('y_min: ',y_train.min(), 'y_max: ',y_train.max())
 
 bs = 64  # batch size
@@ -72,14 +78,10 @@ def get_data(train_ds, valid_ds, bs):
     
 train_dl, valid_dl = get_data(train_ds, valid_ds, bs)
 
-#possible options a block can use
-#3x3
-#5x5
-#7x7
-
-#max pooling
-#avg pooling
-
+#Random_Search
+SEARCH_STRAT = "Random_Search"
+#Naive
+PERFORMANCE_PREDICTOR = "Naive"
 
 #define hyper-parameter ranges
 layer_types = ["Convolution", "Pooling"]
@@ -88,20 +90,6 @@ hp_padding_size = [0,1,3]
 hp_filter_num = [16,24,36,48]
 hp_stride_size = [1,2,3]
 
-
-#params = dict(    hp_kernel_size=hp_kernel_size, 
-                 # hp_kernel_size=hp_kernel_size, 
-                #  hp_stride_size=hp_stride_size,
-                 # hp_kernel_size=hp_kernel_size)""
-
-# Convolutional Layer Shape: output/kernal_size/stride_size
-#conv_output_size = (conv_num_kernels, 
-  #                  (input_size - conv_kernel_size)/conv_stride + 1
-#)
-# Pooling Layer Shape: 
-#pool_output_size = (conv_num_kernels, 
-#                    (conv_output_size[1] - pool_kernel_size)/pool_stride + 1
-#)
 
 class NAS_CNN(nn.Module):
     def __init__(self, net_layers):
@@ -136,9 +124,6 @@ class NAS_CNN(nn.Module):
         return xb.view(-1, xb.size(1))
 
 
-#for each cell/block choose a operation at random
-#op = random.sample(operations,1)
-#print(op)
 class Lambda(nn.Module):
     def __init__(self, func):
         super().__init__()
@@ -262,7 +247,7 @@ def RandomizedSearch():
     current_ouput_channels = 1
     #initialise input size
     input_size = 28
-    max_layers = 2
+    max_layers = 3
     for i in range(max_layers):
         layer_params, current_ouput_channels, input_size = GenerateLayer(i, current_ouput_channels, input_size)
         layers_params.append(layer_params)
@@ -276,55 +261,56 @@ def SelectNextNetwork():
     print("Select from the search space our new net using a search strategy")
     
     layers = list() #create the layers to be generated
+    layer_params = dict()
     
-    if 1==1:
+    #use correct search strat
+    if SEARCH_STRAT == "Random_Search":
         layer_params = RandomizedSearch()  #randomised search
-        for i,params in enumerate(layer_params):
-            print("Building layer " + str(i))
-            id = 0
-            layer_type = params.get("layer_type")
-            input_channel_num = params.get("input_channel_num")
-            output_channel_num = params.get("output_channel")
-            kernel_size = params.get("kernel_size")
-            padding_size = params.get("padding_size")
-            stride_size = params.get("stride_size")
-            if layer_type == "Convolution":
-                id = "Cons"+str(i)
-                print("attempt to add: " + str(input_channel_num))
-                layers.append((id, nn.Conv2d(input_channel_num, output_channel_num, kernel_size=kernel_size, stride=stride_size, padding=padding_size)))
-                layers.append(("ReLu" + str(i), nn.ReLU()))
-            else:
-                id = "Pool"+str(i)
-                layers.append((id, nn.MaxPool2d(kernel_size, stride=stride_size, padding=padding_size)))
-                
-            print(id + " " + str(input_channel_num) + " " + str(output_channel_num) + " " + str(kernel_size))
-            #layers.append(("ReLu" + str(i), nn.ReLU()))
         
+    #build from layers
+    for i,params in enumerate(layer_params):
+        print("Building layer " + str(i))
+        id = 0
+        layer_type = params.get("layer_type")
+        input_channel_num = params.get("input_channel_num")
+        output_channel_num = params.get("output_channel")
+        kernel_size = params.get("kernel_size")
+        padding_size = params.get("padding_size")
+        stride_size = params.get("stride_size")
+        if layer_type == "Convolution":
+            id = "Cons"+str(i)
+            print("attempt to add: " + str(input_channel_num))
+            layers.append((id, nn.Conv2d(input_channel_num, output_channel_num, kernel_size=kernel_size, stride=stride_size, padding=padding_size)))
+            layers.append(("ReLu" + str(i), nn.ReLU()))
+        else:
+            id = "Pool"+str(i)
+            layers.append((id, nn.MaxPool2d(kernel_size, stride=stride_size, padding=padding_size)))
             
-            
-            if i == len(layer_params)-1:
-                #transfoem to a list for the fc
-                layers.append(("postprocess", Lambda(lambda x: x.view(x.size(0), -1))))
-               
-                #add on the fc layer so only 10 outputs are possible
-                num_input_features =  params.get("output_size") * params.get("output_size")  * output_channel_num #size of output * filter
-                num_output_classes = 10
-                #print("estimated " + str((int)num_input_features))
-                layers.append(("FC", nn.Linear(int(num_input_features), num_output_classes)))
-    else:
+        print(id + " " + str(input_channel_num) + " " + str(output_channel_num) + " " + str(kernel_size))
+        #layers.append(("ReLu" + str(i), nn.ReLU()))
+        
+        if i == len(layer_params)-1:
+            #transfoem to a list for the fc
+            layers.append(("postprocess", Lambda(lambda x: x.view(x.size(0), -1))))
+           
+            #add on the fc layer so only 10 outputs are possible
+            num_input_features =  params.get("output_size") * params.get("output_size")  * output_channel_num #size of output * filter
+            num_output_classes = 10
+            #print("estimated " + str((int)num_input_features))
+            print("building FC" + " " + str(num_input_features) + " " + str(num_output_classes))
+            layers.append(("FC", nn.Linear(int(num_input_features), num_output_classes)))
+    '''else:
         layers.append(("conv1", nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1)))
         layers.append(("ReLu1", nn.ReLU()))
         layers.append(("conv2", nn.Conv2d(16, 16, kernel_size=3, stride=2, padding=1)))
         layers.append(("ReLu2", nn.ReLU()))
         layers.append(("con3", nn.Conv2d(16, 10, kernel_size=3, stride=2, padding=1)))
         layers.append(("ReLu3", nn.ReLU()))
-        layers.append(("Pool1", nn.AvgPool2d(4)))
+        layers.append(("Pool1", nn.AvgPool2d(4)))'''
     
     return layers
     
-def PredictNetworkPerformance(net, opt):
-    print("Predict Performance")
-    
+def FullyTrainAndTestNetwork(net, opt):
     #Begin Training
     print("Begin Training")
     fit(epochs, net, loss_func, opt, train_dl,valid_dl) #do the training
@@ -337,8 +323,29 @@ def PredictNetworkPerformance(net, opt):
     print("test predicted ans: " + str(torch.argmax(pred)))
     
     #pyplot.imshow(x_train[test].reshape((28, 28)), cmap="gray")     #display the image, shaped correctly
-    loss = loss_func(net(x_train[0:64].cuda()),y_train[0:64].cuda())
-    acc = accuracy(net(x_train[0:64].cuda()),y_train[0:64].cuda())
+    #test the network against the test set
+
+    #calculate how well it performs on test set        
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for xb,yb in valid_dl:
+            outputs = net(xb.cuda())
+            _, predicted = torch.max(outputs.data, 1)
+            total += yb.size(0)
+            correct += (predicted == yb.cuda()).sum().item()
+    acc = correct/total
+    loss = 0
+    
+    return (loss,acc)
+
+def PredictNetworkPerformance(net, opt):
+    print("Predict Performance")
+    loss = 0
+    acc = 0
+    
+    if PERFORMANCE_PREDICTOR == "Naive":
+        loss, acc = FullyTrainAndTestNetwork(net, opt)
     print('loss: ', loss, 'Acc: ', acc)
     
     return (loss,acc)
@@ -365,7 +372,6 @@ def getModel(netLayers):
         
     
     params = list(net.parameters())
-    #net = net.cuda()
     
     return net, optim.SGD(params=params, lr=lr,momentum=0.9)
 
@@ -376,10 +382,40 @@ def fit(epochs, net, loss_func, opt, train_dl, valid_dl):
             loss_batch(net, loss_func,xb.cuda(),yb.cuda(),opt)
             
         net.eval() #about to check against validation
-        with torch.no_grad():   #dont track operations in block
-            valid_loss = sum(loss_func(net(xb.cuda()), yb.cuda()) for xb, yb in valid_dl)
+        #print("DONE TRAINING")
+        #with torch.no_grad():   #dont track operations in block
+        #    valid_loss = sum(loss_func(net(xb.cuda()), yb.cuda()) for xb, yb in valid_dl)
 
-        print(epoch, valid_loss / len(valid_dl))
+        #print(epoch, valid_loss / len(valid_dl))
+
+def matplotlib_imshow(img, one_channel=False):
+    if one_channel:
+        img = img.mean(dim=0)
+    img = img / 2 + 0.5     # unnormalize
+    npimg = img.numpy()
+    if one_channel:
+        plt.imshow(npimg, cmap="Greys")
+    else:
+        plt.imshow(np.transpose(npimg, (1, 2, 0)))
+
+def NAS_loop(i, return_queue):
+    #Select the parameters for the network to test we want
+    return_queue.put([5])#.put(acc)
+    return_queue.put(mp.current_process().name)
+    return
+    
+    net, opt = getModel(SelectNextNetwork())
+    net.cuda()  #use gpu
+       
+    print("\nmade the selected net")
+    print(net)
+       
+    #Predict how well this network will perform
+    loss, acc = PredictNetworkPerformance(net, opt)
+    print("Finished prediction\n")
+     
+    #store value after paralisim
+    return_queue.put([5, 78, "yes"])#.put(acc)
 
 def main():
     print("Begin")
@@ -392,14 +428,50 @@ def main():
     #train_dl, valid_dl = get_data(train_ds, valid_ds, bs)
     
     #keep looping until satisfied
-    nets_tested = 0
+    #nets_tested = 0
     best_net = 0 #keep track of best nets
     best_net_acc = 0
+    max_nets_to_test = 10
+    net_results = list()
     
-    while nets_tested < 5:
+    #writer = SummaryWriter('runs/fashion_mnist_experiment_1')
+    # get some random training images
+    #dataiter = iter(train_dl)
+    #images, labels = dataiter.next()
+    # create grid of images
+    #img_grid = torchvision.utils.make_grid(images)
+    # show images
+    # matplotlib_imshow(img_grid, one_channel=True)
+    # write to tensorboard
+    #writer.add_image('four_fashion_mnist_images', img_grid)
+    '''return_queue = mp.Queue()
+    proc = []
+    for i in range(max_nets_to_test):
+        # NAS_loop(0,0)
+        
+        p = mp.Process(target=NAS_loop, args=(i, return_queue))
+        proc.append(p)
+        
+    for p in proc:
+        p.start()
+    
+    for p in proc
+        p.join()
+    
+    
+         
+    print("Finished process")
+    print("From the queue: " + str(return_queue.get(timeout=0)))
+    #item = return_queue.get()'''
+   
+    
+    for nets_tested in range(max_nets_to_test):
         #Select the parameters for the network to test we want
         net, opt = getModel(SelectNextNetwork())
-        net.cuda()
+        #writer.add_graph(net, images)
+        #writer.close()
+        net.cuda()  #use gpu
+        
         
         print("\nmade the selected net")
         print(net)
@@ -408,22 +480,22 @@ def main():
         loss, acc = PredictNetworkPerformance(net, opt)
         print("Finished prediction\n")
         
+        #add to results
+        net_results.append(acc)
+        
+        #keep track of best net
         if acc > best_net_acc:
             best_net_acc = acc
             best_net = net
-        
-        nets_tested += 1
     
     print("Best found net")
     print(best_net)
     print(best_net_acc)
+    print("\nAll Nets:")
+    print(net_results)
     
+
     #clear gpu cache
-    #torch.cuda.empty_cache()
-    
-#begin the process
-#print("tst")
-#device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-#print(device)
+    torch.cuda.empty_cache()
     
 main()

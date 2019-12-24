@@ -29,7 +29,6 @@ from torch.utils.data import DataLoader
 
 import pdb #debugging
 
-import multiprocessing as mp
 from torch.utils.tensorboard import SummaryWriter
 
 DATA_PATH = Path("data")
@@ -251,8 +250,6 @@ def RandomizedSearch():
     for i in range(max_layers):
         layer_params, current_ouput_channels, input_size = GenerateLayer(i, current_ouput_channels, input_size)
         layers_params.append(layer_params)
-         
-    
     
     return layers_params
     
@@ -398,25 +395,6 @@ def matplotlib_imshow(img, one_channel=False):
     else:
         plt.imshow(np.transpose(npimg, (1, 2, 0)))
 
-def NAS_loop(i, return_queue):
-    #Select the parameters for the network to test we want
-    return_queue.put([5])#.put(acc)
-    return_queue.put(mp.current_process().name)
-    return
-    
-    net, opt = getModel(SelectNextNetwork())
-    net.cuda()  #use gpu
-       
-    print("\nmade the selected net")
-    print(net)
-       
-    #Predict how well this network will perform
-    loss, acc = PredictNetworkPerformance(net, opt)
-    print("Finished prediction\n")
-     
-    #store value after paralisim
-    return_queue.put([5, 78, "yes"])#.put(acc)
-
 def main():
     print("Begin")
     print("cuda avialnabke: " + str(torch.cuda.is_available())) 
@@ -444,25 +422,6 @@ def main():
     # matplotlib_imshow(img_grid, one_channel=True)
     # write to tensorboard
     #writer.add_image('four_fashion_mnist_images', img_grid)
-    '''return_queue = mp.Queue()
-    proc = []
-    for i in range(max_nets_to_test):
-        # NAS_loop(0,0)
-        
-        p = mp.Process(target=NAS_loop, args=(i, return_queue))
-        proc.append(p)
-        
-    for p in proc:
-        p.start()
-    
-    for p in proc
-        p.join()
-    
-    
-         
-    print("Finished process")
-    print("From the queue: " + str(return_queue.get(timeout=0)))
-    #item = return_queue.get()'''
    
     
     for nets_tested in range(max_nets_to_test):

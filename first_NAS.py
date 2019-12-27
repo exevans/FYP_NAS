@@ -4,6 +4,8 @@ Created on Thu Nov 28 20:13:26 2019
 
 @author: Elliot
 """
+#import reinforcement_learning_search
+
 from pathlib import Path #use paths to store data
 import requests #requests to ask to download info
 
@@ -57,10 +59,11 @@ print('train shape ',x_train.shape)
 print('test shape ',x_valid.shape)
 print('y_min: ',y_train.min(), 'y_max: ',y_train.max())
 
-bs = 64  # batch size
+bs = 100  # batch size
 loss_func = F.cross_entropy
 lr = 0.1
 epochs = 2
+max_layers = 3
 
 # create the training set
 train_ds = TensorDataset(x_train, y_train)
@@ -83,12 +86,17 @@ SEARCH_STRAT = "Random_Search"
 PERFORMANCE_PREDICTOR = "Naive"
 
 #define hyper-parameter ranges
-layer_types = ["Convolution", "Pooling"]
+layer_types = ["Convolution", "Pooling_Max", "Pooling_Avg"]
 hp_kernel_size = [1,3,5,7]
 hp_padding_size = [0,1,3]
 hp_filter_num = [16,24,36,48]
 hp_stride_size = [1,2,3]
 
+
+#keep track of the accuracy for every iteration of all produced architectures
+architecture_list = dict()
+architecture_list["iteration_list"] = []
+architecture_list["accuracy_list"] = []
 
 class NAS_CNN(nn.Module):
     def __init__(self, net_layers):
@@ -201,10 +209,12 @@ def GetValidLayerParams(previous_output_channels, input_size):
                  #print("Attempting to test kernel: " + str(kernel_size) + " padd: " + str(padding_size) + " stride " + str(stride_size) + "output= " + str((input_size - kernel_size+2*padding_size)%stride_size))
                  if (((input_size - kernel_size+2*padding_size)%stride_size)) !=0:    #need to consider actual size
                      continue
-                 if (previous_output_channels - kernel_size) % stride_size !=0:
-                     continue    #input_size - conv_kernel_size)/conv_stride + 1 must be an integer
+                 #if (previous_output_channels - kernel_size) % stride_size !=0: #
+                    # continue    #input_size - conv_kernel_size)/conv_stride + 1 must be an integer
                  elif padding_size >= (kernel_size/2):
                      continue #pad should be smaller than half of kernel size
+                 elif (((input_size - kernel_size+2*padding_size)/stride_size))+1 <=0:#output size must be > 0
+                     continue
                  else: 
                      #found an acceptable match group combinations
                      conv_comb.append((kernel_size, padding_size, stride_size))
@@ -246,13 +256,31 @@ def RandomizedSearch():
     current_ouput_channels = 1
     #initialise input size
     input_size = 28
-    max_layers = 3
+ 
     for i in range(max_layers):
         layer_params, current_ouput_channels, input_size = GenerateLayer(i, current_ouput_channels, input_size)
         layers_params.append(layer_params)
     
     return layers_params
+   
+def ReinforcementSearch(iteration):
+    return
+
+def GradientBasedSearch(iteration):
+    layers_params = list()
     
+    if iteration==0: #take an initial random point
+        current_ouput_channels = 1
+        input_size = 28
+     
+        for i in range(max_layers):
+            layer_params, current_ouput_channels, input_size = GenerateLayer(i, current_ouput_channels, input_size)
+            layers_params.append(layer_params)
+
+    
+    
+    return layers_params
+
 #what network should we try next
 def SelectNextNetwork():
     print("Select from the search space our new net using a search strategy")
@@ -279,9 +307,12 @@ def SelectNextNetwork():
             print("attempt to add: " + str(input_channel_num))
             layers.append((id, nn.Conv2d(input_channel_num, output_channel_num, kernel_size=kernel_size, stride=stride_size, padding=padding_size)))
             layers.append(("ReLu" + str(i), nn.ReLU()))
-        else:
-            id = "Pool"+str(i)
+        elif layer_type == "Pooling_Max":
+            id = "Max_Pool"+str(i)
             layers.append((id, nn.MaxPool2d(kernel_size, stride=stride_size, padding=padding_size)))
+        else:
+            id = "Avg_Pool"+str(i)
+            layers.append((id, nn.AvgPool2d(kernel_size, stride=stride_size, padding=padding_size)))
             
         print(id + " " + str(input_channel_num) + " " + str(output_channel_num) + " " + str(kernel_size))
         #layers.append(("ReLu" + str(i), nn.ReLU()))
@@ -291,7 +322,7 @@ def SelectNextNetwork():
             layers.append(("postprocess", Lambda(lambda x: x.view(x.size(0), -1))))
            
             #add on the fc layer so only 10 outputs are possible
-            num_input_features =  params.get("output_size") * params.get("output_size")  * output_channel_num #size of output * filter
+            num_input_features =  params.get("output_size") **2 * output_channel_num #size of output * filter
             num_output_classes = 10
             #print("estimated " + str((int)num_input_features))
             print("building FC" + " " + str(num_input_features) + " " + str(num_output_classes))
@@ -313,6 +344,19 @@ def FullyTrainAndTestNetwork(net, opt):
     fit(epochs, net, loss_func, opt, train_dl,valid_dl) #do the training
     print('Finished Training')
 
+
+    # visualization accuracy over time (learening curve)
+    plt.plot(architecture_list["iteration_list"],architecture_list["accuracy_list"],color = "red")
+    plt.xlabel("Number of iterations")
+    plt.ylabel("Accuracy")
+    plt.ylim(0, 100)
+    plt.title("Accuracy vs Number of iteration")
+    plt.savefig('graph.png')
+    plt.show()
+    #reset the lists
+    architecture_list["iteration_list"].clear()
+    architecture_list["accuracy_list"].clear()
+
     #test
     test = 49998
     pred = net(x_train[test].cuda())
@@ -322,7 +366,7 @@ def FullyTrainAndTestNetwork(net, opt):
     #pyplot.imshow(x_train[test].reshape((28, 28)), cmap="gray")     #display the image, shaped correctly
     #test the network against the test set
 
-    #calculate how well it performs on test set        
+    #calculate how well it performs on test set overall
     correct = 0
     total = 0
     with torch.no_grad():
@@ -373,19 +417,43 @@ def getModel(netLayers):
     return net, optim.SGD(params=params, lr=lr,momentum=0.9)
 
 def fit(epochs, net, loss_func, opt, train_dl, valid_dl):
+    
+    iteration_count = 0 #used when storing data
+    
     for epoch in range(epochs):
         net.train() #start training
         for xb,yb in train_dl:
             loss_batch(net, loss_func,xb.cuda(),yb.cuda(),opt)
             
-        net.eval() #about to check against validation
-        #print("DONE TRAINING")
-        #with torch.no_grad():   #dont track operations in block
-        #    valid_loss = sum(loss_func(net(xb.cuda()), yb.cuda()) for xb, yb in valid_dl)
+            
+            #about to check against validation goes up to aroumd 750
+            
+            iteration_count += 1
+            if (iteration_count < 100 and (iteration_count%10==0)) or (iteration_count % 50)==0:# and i < 300:
+                #net.eval() 
+                correct = 0
+                total = 0
+                with torch.no_grad():
+                    for xb2,yb2 in valid_dl:
+                        #images = Variable(images.view(-1, seq_dim, input_dim))
+                        # Forward propagation
+                        outputs = net(xb2.cuda())
+                        # Get predictions from the maximum value
+                        predicted = torch.max(outputs.data, 1)[1]
+                        # Total number of labels
+                        total += yb2.size(0)
+                        correct += (predicted == yb2.cuda()).sum()
+                    
+                    accuracy = 100 * correct / float(total)
+                    print("Iteration " + str(iteration_count) + " acc= " + str(accuracy))
+                    
+                    architecture_list["iteration_list"].append(iteration_count)
+                    architecture_list["accuracy_list"].append(accuracy)
+                        
+                        
+                #net.train()
 
-        #print(epoch, valid_loss / len(valid_dl))
-
-def matplotlib_imshow(img, one_channel=False):
+'''def matplotlib_imshow(img, one_channel=False):
     if one_channel:
         img = img.mean(dim=0)
     img = img / 2 + 0.5     # unnormalize
@@ -393,7 +461,7 @@ def matplotlib_imshow(img, one_channel=False):
     if one_channel:
         plt.imshow(npimg, cmap="Greys")
     else:
-        plt.imshow(np.transpose(npimg, (1, 2, 0)))
+        plt.imshow(np.transpose(npimg, (1, 2, 0)))'''
 
 def main():
     print("Begin")
@@ -410,6 +478,7 @@ def main():
     best_net = 0 #keep track of best nets
     best_net_acc = 0
     max_nets_to_test = 10
+    net_values = list()
     net_results = list()
     
     #writer = SummaryWriter('runs/fashion_mnist_experiment_1')
@@ -425,6 +494,9 @@ def main():
    
     
     for nets_tested in range(max_nets_to_test):
+        
+        #get the result of the previos net
+        
         #Select the parameters for the network to test we want
         net, opt = getModel(SelectNextNetwork())
         #writer.add_graph(net, images)
@@ -440,6 +512,7 @@ def main():
         print("Finished prediction\n")
         
         #add to results
+        net_values.append(net)
         net_results.append(acc)
         
         #keep track of best net

@@ -167,7 +167,6 @@ def GenerateLayer(layer_idx, previous_ouput_channels, input_size):
     chosen_layer_params["kernel_size"] = con_com[0] #kernel size
     chosen_layer_params["padding_size"] = con_com[1] #padding
     chosen_layer_params["stride_size"] = con_com[2] #stride
-    #chosen_layer_params["output_channel"] = random.choice(valid_params["output_channel"])
     
     #update so future layers now what input channels to use   
     if chosen_layer_params["layer_type"] == "Convolution":
@@ -175,10 +174,7 @@ def GenerateLayer(layer_idx, previous_ouput_channels, input_size):
         previous_ouput_channels =  chosen_layer_params.get("output_channel")
     else: #output channels will be same as they were previously
         chosen_layer_params["output_channel"] = previous_ouput_channels
-    #else:   #for pooling need to calulate 
-        #(conv_output_size[1] - pool_kernel_size)/pool_stride + 1
-        #previous_ouput_channels =  (chosen_layer_params.get("input_channel_num") - chosen_layer_params["kernel_size"])/chosen_layer_params["stride_size"] +1
-    
+   
     #update input size to next layer
     input_size = ((input_size - con_com[0]+2*con_com[1]) / con_com[2])+1
     chosen_layer_params["output_size"] = input_size
@@ -338,6 +334,17 @@ def SelectNextNetwork():
     
     return layers
     
+
+def DrawGraph(x_data,y_data,x_lim,y_lim):
+    plt.plot(x_data,y_data,color = "red")
+    plt.xlabel("Number of iterations")
+    plt.ylabel("Accuracy")
+    plt.ylim(0, y_lim)
+    plt.xlim(0, x_lim)
+    plt.title("Accuracy vs Number of iteration")
+    plt.savefig('graph.png')
+    plt.show()
+
 def FullyTrainAndTestNetwork(net, opt):
     #Begin Training
     print("Begin Training")
@@ -345,14 +352,9 @@ def FullyTrainAndTestNetwork(net, opt):
     print('Finished Training')
 
 
-    # visualization accuracy over time (learening curve)
-    plt.plot(architecture_list["iteration_list"],architecture_list["accuracy_list"],color = "red")
-    plt.xlabel("Number of iterations")
-    plt.ylabel("Accuracy")
-    plt.ylim(0, 100)
-    plt.title("Accuracy vs Number of iteration")
-    plt.savefig('graph.png')
-    plt.show()
+    # visualization accuracy over time (learning curve)
+    DrawGraph(architecture_list["iteration_list"], architecture_list["accuracy_list"], 1000,100)
+    
     #reset the lists
     architecture_list["iteration_list"].clear()
     architecture_list["accuracy_list"].clear()
@@ -367,18 +369,28 @@ def FullyTrainAndTestNetwork(net, opt):
     #test the network against the test set
 
     #calculate how well it performs on test set overall
-    correct = 0
-    total = 0
-    with torch.no_grad():
-        for xb,yb in valid_dl:
-            outputs = net(xb.cuda())
-            _, predicted = torch.max(outputs.data, 1)
-            total += yb.size(0)
-            correct += (predicted == yb.cuda()).sum().item()
-    acc = correct/total
+    acc = CalculatePerformance(net)
     loss = 0
     
     return (loss,acc)
+
+def CalculatePerformance(net):
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for xb2,yb2 in valid_dl:
+            #images = Variable(images.view(-1, seq_dim, input_dim))
+            # Forward propagation
+            outputs = net(xb2.cuda())
+            # Get predictions from the maximum value
+            predicted = torch.max(outputs.data, 1)[1]
+            # Total number of labels
+            total += yb2.size(0)
+            correct += (predicted == yb2.cuda()).sum()
+        
+        accuracy = correct / float(total)
+        
+        return accuracy
 
 def PredictNetworkPerformance(net, opt):
     print("Predict Performance")
@@ -408,10 +420,7 @@ def getModel(netLayers):
     #add all layers
     for layer in netLayers:
          net.add_module(layer[0],layer[1])
-         
-    #net.add_module("postprocess", Lambda(lambda x: x.view(x.size(0), -1)))
         
-    
     params = list(net.parameters())
     
     return net, optim.SGD(params=params, lr=lr,momentum=0.9)
@@ -420,6 +429,14 @@ def fit(epochs, net, loss_func, opt, train_dl, valid_dl):
     
     iteration_count = 0 #used when storing data
     
+    #do initial results
+    accuracy = CalculatePerformance(net)          
+    print("Iteration " + str(iteration_count) + " acc= " + str(accuracy*100))
+    #store the iteratioon performance 
+    architecture_list["iteration_list"].append(iteration_count)
+    architecture_list["accuracy_list"].append(accuracy*100)
+    
+    #actual training
     for epoch in range(epochs):
         net.train() #start training
         for xb,yb in train_dl:
@@ -430,38 +447,13 @@ def fit(epochs, net, loss_func, opt, train_dl, valid_dl):
             
             iteration_count += 1
             if (iteration_count < 100 and (iteration_count%10==0)) or (iteration_count % 50)==0:# and i < 300:
-                #net.eval() 
-                correct = 0
-                total = 0
-                with torch.no_grad():
-                    for xb2,yb2 in valid_dl:
-                        #images = Variable(images.view(-1, seq_dim, input_dim))
-                        # Forward propagation
-                        outputs = net(xb2.cuda())
-                        # Get predictions from the maximum value
-                        predicted = torch.max(outputs.data, 1)[1]
-                        # Total number of labels
-                        total += yb2.size(0)
-                        correct += (predicted == yb2.cuda()).sum()
-                    
-                    accuracy = 100 * correct / float(total)
-                    print("Iteration " + str(iteration_count) + " acc= " + str(accuracy))
-                    
-                    architecture_list["iteration_list"].append(iteration_count)
-                    architecture_list["accuracy_list"].append(accuracy)
-                        
-                        
-                #net.train()
 
-'''def matplotlib_imshow(img, one_channel=False):
-    if one_channel:
-        img = img.mean(dim=0)
-    img = img / 2 + 0.5     # unnormalize
-    npimg = img.numpy()
-    if one_channel:
-        plt.imshow(npimg, cmap="Greys")
-    else:
-        plt.imshow(np.transpose(npimg, (1, 2, 0)))'''
+                accuracy = CalculatePerformance(net)
+                
+                print("Iteration " + str(iteration_count) + " acc= " + str(accuracy*100))
+                #store the iteratioon performance 
+                architecture_list["iteration_list"].append(iteration_count)
+                architecture_list["accuracy_list"].append(accuracy*100)
 
 def main():
     print("Begin")

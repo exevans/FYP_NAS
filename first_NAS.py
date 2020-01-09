@@ -400,14 +400,13 @@ def ReinforcementSearch():
     
     layers_params = list()
     
-    
     #define the state space
     stateSpace = StateSpace()
-    stateSpace.add_state('layer_types', ["Convolution", "Pooling_Max", "Pooling_Avg"])
-    stateSpace.add_state('kernel_size', [1,3,5,7])
-    stateSpace.add_state('padding_size', [0,1,3])
-    stateSpace.add_state('filter_num', [16,24,36,48])
-    stateSpace.add_state('stride_size', [1,2,3])
+    stateSpace.add_state('layer_types', layer_types)
+    stateSpace.add_state('kernel_size', hp_kernel_size)
+    stateSpace.add_state('padding_size', hp_padding_size)
+    stateSpace.add_state('filter_num', hp_filter_num)
+    stateSpace.add_state('stride_size', hp_stride_size)
     stateSpace.dump_states()
     
     #test encoding a value

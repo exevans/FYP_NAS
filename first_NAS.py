@@ -111,8 +111,116 @@ architecture_list = dict()
 architecture_list["iteration_list"] = []
 architecture_list["accuracy_list"] = []
 
+class StateSpace:
+    
+    def __init__(self):
+        self.states = dict()
+        self.state_count_ = 0
+
+    def add_state(self, name, values):
+        
+        index_map = {}  #gets value from index
+        value_map = {}  #gets index from value
+        
+        for i, val in enumerate(values):
+            index_map[i] = val
+            value_map[val] = i
+            
+        stateData = {
+            'id'        : self.state_count_,
+            'name'      : name,
+            'values'    : values,
+            'size'      : len(values),
+            'index_map' : index_map,
+            'value_map' : value_map
+        }
+        
+        self.states[self.state_count_] = stateData
+        
+        self.state_count_ += 1
+        
+        return self.state_count_
+    
+    def encode(self, state_id, val):
+        #get the chosen state
+        state = self.states[state_id]
+        state_size = state['size']
+        value_map = state['value_map']
+        #get index of the value to encode
+        val_idx = value_map[val]
+        
+        #one hot encode
+        one_hot_enc = np.zeros((1, state_size), dtype=np.float32)
+        one_hot_enc[np.arange(1), val_idx] = val_idx + 1
+        return one_hot_enc
+    
+    def get_state_val(self, state_id, state_val_id):
+        #fix state_id from multiple layers
+        state_id %= self.state_count_
+        
+        state = self.states[state_id]
+        state_val = state['index_map'][state_val_id]
+        
+        return state_val
+    
+    def encode_random_states(self, layer_num):
+        states = []
+
+        for layer in range(layer_num):
+            for state_id in range( self.state_count_):
+                #get relevent state
+                state =  self.states[state_id]
+                size = state['size']
+    
+                #get random it from possibilities
+                state_sel_idx = randrange(size)
+                state_sel = state['index_map'][state_sel_idx]
+                #no encode the selection
+                state = self.encode(state_id, state_sel)
+                states.append(state)
+                
+        return states
+    
+    def decode(self, enc_states):
+        state_values = []
+        for id, state_enc in enumerate(enc_states):
+            state_val_idx = np.argmax(state_enc, axis=-1)[0]
+            value = self.get_state_val(id, state_val_idx)
+            state_values.append(value)
+
+        return state_values
+    
+    def dump_states(self):
+        print("dumping StateSpace Content:")
+        #print(self.states)
+        for state in self.states:
+            print(self.states[state])
+            
+    def __getitem__(self, id):
+        return self.states[id % self.state_count_]
+
+class Controller:
+    def __init__(self, stateSpace):
+        self.stateSpace = stateSpace
+
+    def get_action(self, state):
+        print("get action from controller")
+        initial_state = self.stateSpace[0]
+        size = initial_state['size']
+
+        if state[0].shape != (1, size):
+            state = state[0].reshape((1, size)).astype('int32')
+        else:
+            state = state[0]
+
+        print("State input to Controller for Action : ", state.flatten())
 
 
+        #for l in range(layer_num):
+         #   for i in range(state.state_count_):
+                
+
+        return pred_actions
 
 class Lambda(nn.Module):
     def __init__(self, func):
@@ -286,6 +394,35 @@ def GridSearch():
     
     
     return layers_params'''
+    
+def ReinforcementSearch():
+    print("Using reinforcement search")
+    
+    layers_params = list()
+    
+    
+    #define the state space
+    stateSpace = StateSpace()
+    stateSpace.add_state('layer_types', ["Convolution", "Pooling_Max", "Pooling_Avg"])
+    stateSpace.add_state('kernel_size', [1,3,5,7])
+    stateSpace.add_state('padding_size', [0,1,3])
+    stateSpace.add_state('filter_num', [16,24,36,48])
+    stateSpace.add_state('stride_size', [1,2,3])
+    stateSpace.dump_states()
+    
+    #test encoding a value
+    print("Encode test = ", stateSpace.encode(1, 5))
+    #test encoding a random net
+    state = stateSpace.encode_random_states(max_layers)
+    print(state)
+    print("Decode test = ", stateSpace.decode(state))
+    
+    #get the next action from the controller pass in previous net (state)
+    controller = Controller(stateSpace)
+    actions = controller.get_action(state)  # get an action for the previous state
+    
+
+    return layers_params
 
 #from the chosen params for each layer actaully build layers of the network
 def BuildNetworkFromParameters(layer_params):
@@ -344,40 +481,6 @@ def SelectNextNetwork():
         
     #build from layer_params
     layers = BuildNetworkFromParameters(layer_params)
-    '''for i,params in enumerate(layer_params):
-        print("Building layer " + str(i))
-        id = 0
-        layer_type = params.get("layer_type")
-        input_channel_num = params.get("input_channel_num")
-        output_channel_num = params.get("output_channel")
-        kernel_size = params.get("kernel_size")
-        padding_size = params.get("padding_size")
-        stride_size = params.get("stride_size")
-        if layer_type == "Convolution":
-            id = "Cons"+str(i)
-            print("attempt to add: " + str(input_channel_num))
-            layers.append((id, nn.Conv2d(input_channel_num, output_channel_num, kernel_size=kernel_size, stride=stride_size, padding=padding_size)))
-            layers.append(("ReLu" + str(i), nn.ReLU()))
-        elif layer_type == "Pooling_Max":
-            id = "Max_Pool"+str(i)
-            layers.append((id, nn.MaxPool2d(kernel_size, stride=stride_size, padding=padding_size)))
-        else:
-            id = "Avg_Pool"+str(i)
-            layers.append((id, nn.AvgPool2d(kernel_size, stride=stride_size, padding=padding_size)))
-            
-        print(id + " " + str(input_channel_num) + " " + str(output_channel_num) + " " + str(kernel_size))
-        #layers.append(("ReLu" + str(i), nn.ReLU()))
-        
-        if i == len(layer_params)-1:
-            #transfoem to a list for the fc
-            layers.append(("postprocess", Lambda(lambda x: x.view(x.size(0), -1))))
-           
-            #add on the fc layer so only 10 outputs are possible
-            num_input_features =  params.get("output_size") **2 * output_channel_num #size of output * filter
-            num_output_classes = 10
-            #print("estimated " + str((int)num_input_features))
-            print("building FC" + " " + str(num_input_features) + " " + str(num_output_classes))
-            layers.append(("FC", nn.Linear(int(num_input_features), num_output_classes)))'''
     
     return layers
     

@@ -4,7 +4,6 @@ Created on Thu Nov 28 20:13:26 2019
 
 @author: Elliot
 """
-#import reinforcement_learning_search
 
 from pathlib import Path #use paths to store data
 import requests #requests to ask to download info
@@ -20,6 +19,7 @@ import torch
 import torchvision
 
 import random
+from random import randrange
 import math #various math operations
 
 import torch.nn.functional as F #don't define our own loss functions
@@ -31,7 +31,9 @@ from torch.utils.data import DataLoader
 
 import pdb #debugging
 
-from torch.utils.tensorboard import SummaryWriter
+
+use_cuda = torch.cuda.is_available()
+device = torch.device("cuda" if use_cuda else "cpu")
 
 DATA_PATH = Path("data")
 PATH = DATA_PATH / "mnist"
@@ -80,10 +82,21 @@ def get_data(train_ds, valid_ds, bs):
     
 train_dl, valid_dl = get_data(train_ds, valid_ds, bs)
 
+COLOUR_CHANNEL_NUM = 1
+INPUT_IMAGE_SIZE = 28
+
+#Grid_Search
+#SEARCH_STRAT = "Grid_Search"
 #Random_Search
 SEARCH_STRAT = "Random_Search"
+#Reinforcement
+#SEARCH_STRAT = "RL_Search"
 #Naive
-PERFORMANCE_PREDICTOR = "Naive"
+#PERFORMANCE_PREDICTOR = "Naive"
+#low fidelity
+PERFORMANCE_PREDICTOR = "Low_Fidelity"
+
+LOW_FIDELITY_ITERATIONS = 50
 
 #define hyper-parameter ranges
 layer_types = ["Convolution", "Pooling_Max", "Pooling_Avg"]
@@ -98,37 +111,7 @@ architecture_list = dict()
 architecture_list["iteration_list"] = []
 architecture_list["accuracy_list"] = []
 
-class NAS_CNN(nn.Module):
-    def __init__(self, net_layers):
-        print("val= " + str(net_layers))
-        
-        super().__init__()
-        
-        #for layer in net_layers:
-            
-        #self.lin = nn.Linear(784, 10)
-        #self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1)   #greyscale so only 1 channel 
-        #self.conv2 = nn.Conv2d(16, 16, kernel_size=3, stride=2, padding=1)
-        #self.conv3 = nn.Conv2d(16, 10, kernel_size=3, stride=2, padding=1)
 
-    def forward(self, xb):
-        #return self.lin(xb)
-        #print(xb.size())
-        xb = xb.view(-1, 1, 28, 28) #change the shape of the tensor, -1 is unspecified uses 64 as that's the batch size
-        print(xb.size())
-        #print('testing a')
-       # print(self.conv1(xb)[2])
-        #print('testing b')
-        #print(F.relu(self.conv1(xb))[2])
-        
-        xb = F.relu(self.conv1(xb))
-        print(xb.size())
-        xb = F.relu(self.conv2(xb))
-        print(xb.size())
-        xb = F.relu(self.conv3(xb))
-        print(xb.size())
-        xb = F.avg_pool2d(xb, 4)
-        return xb.view(-1, xb.size(1))
 
 
 class Lambda(nn.Module):
@@ -140,7 +123,7 @@ class Lambda(nn.Module):
         return self.func(x)
 
 def preprocess(x):
-    return x.view(-1, 1, 28, 28)
+    return x.view(-1, 1, INPUT_IMAGE_SIZE, INPUT_IMAGE_SIZE)
 
 #def getOp():
   #  op = random.sample(operations,1)
@@ -151,7 +134,8 @@ def accuracy(out, yb):
     preds = torch.argmax(out, dim=1)    #find which index has highest probability for each batch array of probabilities 
     return (preds == yb).float().mean()
 
-def GenerateLayer(layer_idx, previous_ouput_channels, input_size):
+#randomly selects from valid params
+def GenerateRandomLayer(layer_idx, previous_ouput_channels, input_size):
     chosen_layer_params = dict()
     
     #get all the valid params to randomly select from, dict of param types each with possibilities
@@ -181,6 +165,15 @@ def GenerateLayer(layer_idx, previous_ouput_channels, input_size):
     
     #log whats chosen
     print("layer " + str(layer_idx) + ": " + chosen_layer_params["layer_type"] + " : " + str(chosen_layer_params["input_channel_num"]) + " : " + str(chosen_layer_params["output_channel"]) + " kernel: " + str(chosen_layer_params["kernel_size"]) + " padd: " + str(chosen_layer_params["padding_size"]) + " stride: " + str(chosen_layer_params["stride_size"]) + " Output_size: " + str(chosen_layer_params["output_size"]))
+    
+    return chosen_layer_params, previous_ouput_channels, input_size
+
+#selects the next option from the valid params
+def GenerateNextGridLayer(layer_idx, previous_ouput_channels, input_size):
+    chosen_layer_params = dict()
+    
+    #get the possible combinations to select from
+    valid_params = GetValidLayerParams(previous_ouput_channels, input_size)
     
     return chosen_layer_params, previous_ouput_channels, input_size
 
@@ -249,20 +242,37 @@ def RandomizedSearch():
     
     #make all the layers
     #initial input channel (colour channels)
-    current_ouput_channels = 1
+    current_ouput_channels = COLOUR_CHANNEL_NUM
     #initialise input size
-    input_size = 28
+    input_size = INPUT_IMAGE_SIZE
  
     for i in range(max_layers):
-        layer_params, current_ouput_channels, input_size = GenerateLayer(i, current_ouput_channels, input_size)
+        layer_params, current_ouput_channels, input_size = GenerateRandomLayer(i, current_ouput_channels, input_size)
         layers_params.append(layer_params)
     
     return layers_params
    
-def ReinforcementSearch(iteration):
-    return
 
-def GradientBasedSearch(iteration):
+
+#produce every possible network one at a time
+def GridSearch():
+    print("Using Grid search")
+    
+    layers_params = list()
+    
+    #make all the layers
+    #initial input channel (colour channels)
+    current_ouput_channels = COLOUR_CHANNEL_NUM
+    #initialise input size
+    input_size = INPUT_IMAGE_SIZE
+ 
+    for i in range(max_layers):
+        layer_params, current_ouput_channels, input_size = GenerateNextGridLayer(i, current_ouput_channels, input_size)
+        layers_params.append(layer_params)
+    
+    return layers_params
+
+'''def GradientBasedSearch(iteration):
     layers_params = list()
     
     if iteration==0: #take an initial random point
@@ -275,20 +285,12 @@ def GradientBasedSearch(iteration):
 
     
     
-    return layers_params
+    return layers_params'''
 
-#what network should we try next
-def SelectNextNetwork():
-    print("Select from the search space our new net using a search strategy")
+#from the chosen params for each layer actaully build layers of the network
+def BuildNetworkFromParameters(layer_params):
+    layers = list()
     
-    layers = list() #create the layers to be generated
-    layer_params = dict()
-    
-    #use correct search strat
-    if SEARCH_STRAT == "Random_Search":
-        layer_params = RandomizedSearch()  #randomised search
-        
-    #build from layers
     for i,params in enumerate(layer_params):
         print("Building layer " + str(i))
         id = 0
@@ -323,14 +325,59 @@ def SelectNextNetwork():
             #print("estimated " + str((int)num_input_features))
             print("building FC" + " " + str(num_input_features) + " " + str(num_output_classes))
             layers.append(("FC", nn.Linear(int(num_input_features), num_output_classes)))
-    '''else:
-        layers.append(("conv1", nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1)))
-        layers.append(("ReLu1", nn.ReLU()))
-        layers.append(("conv2", nn.Conv2d(16, 16, kernel_size=3, stride=2, padding=1)))
-        layers.append(("ReLu2", nn.ReLU()))
-        layers.append(("con3", nn.Conv2d(16, 10, kernel_size=3, stride=2, padding=1)))
-        layers.append(("ReLu3", nn.ReLU()))
-        layers.append(("Pool1", nn.AvgPool2d(4)))'''
+
+    return layers
+#what network should we try next
+def SelectNextNetwork():
+    print("Select from the search space our new net using a search strategy")
+    
+    layers = list() #create the layers to be generated
+    layer_params = dict()
+    
+    #use correct search strat
+    if SEARCH_STRAT == "Grid_Search": 
+        layer_params = GridSearch() #grid search
+    elif SEARCH_STRAT == "Random_Search":
+        layer_params = RandomizedSearch()  #randomised search
+    elif SEARCH_STRAT == "RL_Search":
+        layer_params = ReinforcementSearch()  #reinforcement learning search
+        
+    #build from layer_params
+    layers = BuildNetworkFromParameters(layer_params)
+    '''for i,params in enumerate(layer_params):
+        print("Building layer " + str(i))
+        id = 0
+        layer_type = params.get("layer_type")
+        input_channel_num = params.get("input_channel_num")
+        output_channel_num = params.get("output_channel")
+        kernel_size = params.get("kernel_size")
+        padding_size = params.get("padding_size")
+        stride_size = params.get("stride_size")
+        if layer_type == "Convolution":
+            id = "Cons"+str(i)
+            print("attempt to add: " + str(input_channel_num))
+            layers.append((id, nn.Conv2d(input_channel_num, output_channel_num, kernel_size=kernel_size, stride=stride_size, padding=padding_size)))
+            layers.append(("ReLu" + str(i), nn.ReLU()))
+        elif layer_type == "Pooling_Max":
+            id = "Max_Pool"+str(i)
+            layers.append((id, nn.MaxPool2d(kernel_size, stride=stride_size, padding=padding_size)))
+        else:
+            id = "Avg_Pool"+str(i)
+            layers.append((id, nn.AvgPool2d(kernel_size, stride=stride_size, padding=padding_size)))
+            
+        print(id + " " + str(input_channel_num) + " " + str(output_channel_num) + " " + str(kernel_size))
+        #layers.append(("ReLu" + str(i), nn.ReLU()))
+        
+        if i == len(layer_params)-1:
+            #transfoem to a list for the fc
+            layers.append(("postprocess", Lambda(lambda x: x.view(x.size(0), -1))))
+           
+            #add on the fc layer so only 10 outputs are possible
+            num_input_features =  params.get("output_size") **2 * output_channel_num #size of output * filter
+            num_output_classes = 10
+            #print("estimated " + str((int)num_input_features))
+            print("building FC" + " " + str(num_input_features) + " " + str(num_output_classes))
+            layers.append(("FC", nn.Linear(int(num_input_features), num_output_classes)))'''
     
     return layers
     
@@ -347,13 +394,17 @@ def DrawGraph(x_data,y_data,x_lim,y_lim):
 
 def FullyTrainAndTestNetwork(net, opt):
     #Begin Training
-    print("Begin Training")
-    fit(epochs, net, loss_func, opt, train_dl,valid_dl) #do the training
+    low_fidelity_bool = PERFORMANCE_PREDICTOR == "Low_Fidelity"
+    
+    print("Begin Training: LowFidelity =", low_fidelity_bool)
+    fit(epochs, net, loss_func, opt, train_dl,valid_dl, low_fidelity_bool) #do the training
     print('Finished Training')
 
-
     # visualization accuracy over time (learning curve)
-    DrawGraph(architecture_list["iteration_list"], architecture_list["accuracy_list"], 1000,100)
+    iteration_num = 1000
+    if low_fidelity_bool:
+        iteration_num = LOW_FIDELITY_ITERATIONS
+    DrawGraph(architecture_list["iteration_list"], architecture_list["accuracy_list"], iteration_num,100)
     
     #reset the lists
     architecture_list["iteration_list"].clear()
@@ -361,7 +412,7 @@ def FullyTrainAndTestNetwork(net, opt):
 
     #test
     test = 49998
-    pred = net(x_train[test].cuda())
+    pred = net(x_train[test].to(device))
     #print(loss_func(pred, y_train[test]))
     print("test predicted ans: " + str(torch.argmax(pred)))
     
@@ -381,12 +432,12 @@ def CalculatePerformance(net):
         for xb2,yb2 in valid_dl:
             #images = Variable(images.view(-1, seq_dim, input_dim))
             # Forward propagation
-            outputs = net(xb2.cuda())
+            outputs = net(xb2.to(device))
             # Get predictions from the maximum value
             predicted = torch.max(outputs.data, 1)[1]
             # Total number of labels
             total += yb2.size(0)
-            correct += (predicted == yb2.cuda()).sum()
+            correct += (predicted == yb2.to(device)).sum()
         
         accuracy = correct / float(total)
         
@@ -397,8 +448,17 @@ def PredictNetworkPerformance(net, opt):
     loss = 0
     acc = 0
     
-    if PERFORMANCE_PREDICTOR == "Naive":
+    #get initial untrained performance
+    accuracy = CalculatePerformance(net)          
+    print("Iteration " + str(0) + " acc= " + str(accuracy*100))
+    #store the iteratioon performance 
+    architecture_list["iteration_list"].append(0)
+    architecture_list["accuracy_list"].append(accuracy*100)
+    
+    #choose a method to predict the performance
+    if PERFORMANCE_PREDICTOR == "Naive" or PERFORMANCE_PREDICTOR == "Low_Fidelity":
         loss, acc = FullyTrainAndTestNetwork(net, opt)
+        
     print('loss: ', loss, 'Acc: ', acc)
     
     return (loss,acc)
@@ -425,65 +485,52 @@ def getModel(netLayers):
     
     return net, optim.SGD(params=params, lr=lr,momentum=0.9)
 
-def fit(epochs, net, loss_func, opt, train_dl, valid_dl):
+def fit(epochs, net, loss_func, opt, train_dl, valid_dl, low_fidelity):
     
     iteration_count = 0 #used when storing data
-    
-    #do initial results
-    accuracy = CalculatePerformance(net)          
-    print("Iteration " + str(iteration_count) + " acc= " + str(accuracy*100))
-    #store the iteratioon performance 
-    architecture_list["iteration_list"].append(iteration_count)
-    architecture_list["accuracy_list"].append(accuracy*100)
     
     #actual training
     for epoch in range(epochs):
         net.train() #start training
         for xb,yb in train_dl:
-            loss_batch(net, loss_func,xb.cuda(),yb.cuda(),opt)
+            loss_batch(net, loss_func,xb.to(device),yb.to(device),opt)
             
             
             #about to check against validation goes up to aroumd 750
-            
             iteration_count += 1
+            plot_performance = True
             if (iteration_count < 100 and (iteration_count%10==0)) or (iteration_count % 50)==0:# and i < 300:
-
-                accuracy = CalculatePerformance(net)
-                
-                print("Iteration " + str(iteration_count) + " acc= " + str(accuracy*100))
-                #store the iteratioon performance 
-                architecture_list["iteration_list"].append(iteration_count)
-                architecture_list["accuracy_list"].append(accuracy*100)
-
+                if plot_performance:
+                    accuracy = CalculatePerformance(net)
+                    
+                    print("Iteration " + str(iteration_count) + " acc= " + str(accuracy*100))
+                    #store the iteratioon performance 
+                    architecture_list["iteration_list"].append(iteration_count)
+                    architecture_list["accuracy_list"].append(accuracy*100)
+                else:
+                     print("Iteration " + str(iteration_count))
+                     
+            #if we are doing a low fideliy estimate should we break?
+            if low_fidelity and iteration_count > LOW_FIDELITY_ITERATIONS:
+                break
+            
 def main():
     print("Begin")
-    print("cuda avialnabke: " + str(torch.cuda.is_available())) 
-    if torch.cuda.is_available():
+    
+    print("cuda avialnabke: " + str(use_cuda)) 
+    if use_cuda:
         print(torch.cuda.get_device_name(0))
         print(torch.cuda.memory_allocated())
         print(torch.cuda.memory_cached())
-    #get all the training data to use
-    #train_dl, valid_dl = get_data(train_ds, valid_ds, bs)
+    
     
     #keep looping until satisfied
-    #nets_tested = 0
     best_net = 0 #keep track of best nets
     best_net_acc = 0
     max_nets_to_test = 10
     net_values = list()
     net_results = list()
     
-    #writer = SummaryWriter('runs/fashion_mnist_experiment_1')
-    # get some random training images
-    #dataiter = iter(train_dl)
-    #images, labels = dataiter.next()
-    # create grid of images
-    #img_grid = torchvision.utils.make_grid(images)
-    # show images
-    # matplotlib_imshow(img_grid, one_channel=True)
-    # write to tensorboard
-    #writer.add_image('four_fashion_mnist_images', img_grid)
-   
     
     for nets_tested in range(max_nets_to_test):
         
@@ -493,7 +540,7 @@ def main():
         net, opt = getModel(SelectNextNetwork())
         #writer.add_graph(net, images)
         #writer.close()
-        net.cuda()  #use gpu
+        net.to(device)
         
         
         print("\nmade the selected net")
@@ -522,4 +569,5 @@ def main():
     #clear gpu cache
     torch.cuda.empty_cache()
     
-main()
+if __name__ == "__main__":
+    main()

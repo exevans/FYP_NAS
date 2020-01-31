@@ -17,7 +17,7 @@ import numpy as np #use numpy
 
 import torch
 import torchvision
-
+from torch.distributions import Categorical
 import random
 from random import randrange
 import math #various math operations
@@ -86,11 +86,11 @@ COLOUR_CHANNEL_NUM = 1
 INPUT_IMAGE_SIZE = 28
 
 #Grid_Search
-SEARCH_STRAT = "Grid_Search"
+#SEARCH_STRAT = "Grid_Search"
 #Random_Search
 #SEARCH_STRAT = "Random_Search"
 #Reinforcement
-#SEARCH_STRAT = "RL_Search"
+SEARCH_STRAT = "RL_Search"
 #Naive
 #PERFORMANCE_PREDICTOR = "Naive"
 #low fidelity
@@ -100,9 +100,9 @@ LOW_FIDELITY_ITERATIONS = 50
 
 #define hyper-parameter ranges
 layer_types = ["Convolution", "Pooling_Max", "Pooling_Avg"]
-hp_kernel_size = [1,3,5,7]
+hp_kernel_size = [1,3,5]#,7]
 hp_padding_size = [0,1,3]
-hp_filter_num = [16,24,36,48]
+hp_filter_num = [16,24,36]#,48]
 hp_stride_size = [1,2,3]
 
 #keep track of which layer combinations have been selected as we traverse all posibilities
@@ -186,7 +186,7 @@ class StateSpace:
                 #get random it from possibilities
                 state_sel_idx = randrange(size)
                 state_sel = state['index_map'][state_sel_idx]
-                #no encode the selection
+                #now encode the selection
                 state = self.encode(state_id, state_sel)
                 states.append(state)
                 
@@ -209,29 +209,155 @@ class StateSpace:
             
     def __getitem__(self, id):
         return self.states[id % self.state_count_]
+    
+class ReinforcementSearchObj:
+    def __init__(self):
+        print("init reinforce search")
+        self.stateSpace = StateSpace()
+        
+        #define the state space
+        #stateSpace = StateSpace()
+        self.stateSpace.add_state('layer_types', layer_types)
+        self.stateSpace.add_state('kernel_size', hp_kernel_size)
+        self.stateSpace.add_state('padding_size', hp_padding_size)
+        self.stateSpace.add_state('filter_num', hp_filter_num)
+        self.stateSpace.add_state('stride_size', hp_stride_size)
+        #stateSpace.dump_states()
+        
+        self.controller = Controller(self.stateSpace)
+        
+        #initial state to use
+        self.state = self.stateSpace.encode_random_states(max_layers)
+        
+    def SearchForNetwork(self):
+        print("Using reinforcement search")
+        
+        layers_params = list()
+        
+        #test encoding a value
+        #print("Encode test = ", stateSpace.encode(1, 5))
+        #test encoding a random net
+        
+        print("initial state = ", self.state)
+        print("Decode test = ", self.stateSpace.decode(self.state))
+        
+        #get the next action from the controller pass in previous net (state)
+        actions = self.controller.get_action(self.state)  # get an action for the previous state
+        
+        print("Got the actions")
+        
+        #state is now set to first action
+        self.state = actions[0]
+    
+        return layers_params
+    
+    def SetReward(self, acc):
+        return 0
+
+class Agent(nn.Module):
+
+    def __init__(self, input_size, hidden_size, num_steps):
+        super(Agent, self).__init__()
+        #declare the hidden size for the network
+        '''self.hidden_size = hidden_size
+        self.i2h = nn.Linear(input_size + hidden_size, hidden_size) #input to hidden layer
+        self.i2o = nn.Linear(input_size + hidden_size, output_size) #input to output layer
+        self.softmax = nn.LogSoftmax(dim = 1) #softmax for classification'''
+
+        self.lstm = nn.LSTMCell(input_size=3, hidden_size=hidden_size)#, num_layers=1, batch_first=True)
+        self.decoder = nn.Linear(hidden_size, 3)
+        
+        self.hidden_size = hidden_size
+        
+        self.hidden = self.init_hidden()
+        self.h_t, self.c_t = self.hidden
+    
+    def forward(self, inp, hidden):
+        #outputs = []
+        #self.h_t, self.c_t = self.hidden
+        
+        #for i in range(self.num_steps):
+           # input_data = self.embedding(step_data)
+        print("Feeding into nn\n", inp)#, "\nhidden:\n", hidden)
+        self.h_t, self.c_t = self.lstm(inp, (self.h_t, self.c_t))
+        
+        #]out, (h_t, c_t) = self.lstm(inp, hidden)
+        #print("After lstm call:\n", self.h_t, " \n", self.c_t)
+         
+        output = self.decoder(self.h_t)
+
+        #output = h_t
+           # Add drop out
+           # h_t = self.drop(h_t)
+           #output = self.decoder(h_t)
+           #input = output
+        #outputs += [output]
+
+        #outputs = torch.stack(outputs).squeeze(1)
+        
+        return output
+
+    def init_hidden(self):
+        h_t = torch.zeros(1, self.hidden_size)
+        c_t = torch.zeros(1, self.hidden_size)
+
+        #return hidden
+        return (h_t, c_t)
+
 
 class Controller:
     def __init__(self, stateSpace):
+        print("create controller")
+        
         self.stateSpace = stateSpace
+        self.agent = Agent(3, 64, 3*5)
+        print("Agent:\n", self.agent)
+        
+    def policy_network(self, state, max_layers):
+        #state is first input of the previous network
+        #other are fed in internally
+        outputs = []
+        hidden = self.agent.init_hidden()
+        # we provide a flat list of chained input-output to the RNN
+        #list of hyper params for each layer
+        for i in range(self.stateSpace.state_count_ * max_layers):
+            state_id = i % self.stateSpace.state_count_
+            state_space = self.stateSpace[i]
+            size = state_space['size']
+            
+            
+            inState_var = torch.from_numpy(state[i])#.flatten())
+            print("input to the rnn", inState_var)
+            output = self.agent(inState_var, hidden)
+            print("output of the rnn", output)
+            
+            outputs += [output]
+           
+        outputs = torch.stack(outputs).squeeze(1)
+        print("policy actions produced:\n", outputs)
+        action_index = Categorical(logits=outputs).sample().unsqueeze(1)
+        print("action_index: ", action_index)
+        
+        return action_index
 
     def get_action(self, state):
-        print("get action from controller")
+        print("get action from controller to return the new architecture")
         initial_state = self.stateSpace[0]
         size = initial_state['size']
 
-        if state[0].shape != (1, size):
-            state = state[0].reshape((1, size)).astype('int32')
-        else:
-            state = state[0]
+        #if state[0].shape != (1, size):
+        #    state = state[0].reshape((1, size)).astype('int32')
+        #else:
+        #    state = state[0]
 
-        print("State input to Controller for Action : ", state.flatten())
-
+        print("State input to Controller for Action : ", state, " -> ")
 
         #for l in range(layer_num):
          #   for i in range(state.state_count_):
                 
+        pred_actions = self.policy_network(state, max_layers)
 
-        return pred_actions
+        return pred_actions 
 
 class Lambda(nn.Module):
     def __init__(self, func):
@@ -288,23 +414,29 @@ def GenerateRandomLayer(layer_idx, previous_ouput_channels, input_size):
     return chosen_layer_params, previous_ouput_channels, input_size
 
 def IncrementGridSearchIterator(layer_idx, grid_layer_to_inc, valid_params):
-    if grid_layer_to_inc == layer_idx:
-        #assume unless told that we reset the layer to inc to 0
-        grid_layer_to_inc = 0
-        if (grid_search_layers_counters[layer_idx]["input_channel_num"] +1 ) >= len(valid_params["input_channel_num"]):
-            grid_search_layers_counters[layer_idx]["input_channel_num"] = 0
-            if (grid_search_layers_counters[layer_idx]["layer_type"] + 1) >= len(valid_params["layer_type"]):
-                 grid_search_layers_counters[layer_idx]["layer_type"] = 0
-                 if (grid_search_layers_counters[layer_idx]["conv_comb"] + 1) >= len(valid_params["conv_comb"]):
-                     grid_search_layers_counters[layer_idx]["conv_comb"] = 0
-                     #we have tried all posibilities for this layer so now inc next by 1
-                     grid_layer_to_inc = layer_idx +1
-                 else:
-                     grid_search_layers_counters[layer_idx]["conv_comb"] += 1  
-            else:
-                grid_search_layers_counters[layer_idx]["layer_type"] += 1
+    #don't make changes to layers other than the one to increment
+    if grid_layer_to_inc != layer_idx:
+        return
+    
+    #assume unless told that we reset the layer to inc to 0
+    grid_layer_to_inc = 0
+    
+    layer_counters = grid_search_layers_counters[layer_idx]
+    #attempt io inc in order: input_channel/layer_type/conv_comb
+    if (layer_counters["input_channel_num"] +1 ) >= len(valid_params["input_channel_num"]):
+        layer_counters["input_channel_num"] = 0
+        if (layer_counters["layer_type"] + 1) >= len(valid_params["layer_type"]):
+             layer_counters["layer_type"] = 0
+             if (layer_counters["conv_comb"] + 1) >= len(valid_params["conv_comb"]):
+                 layer_counters["conv_comb"] = 0
+                 #we have tried all posibilities for this layer so now inc next by 1
+                 grid_layer_to_inc = layer_idx +1
+             else:
+                layer_counters["conv_comb"] += 1  
         else:
-            grid_search_layers_counters[layer_idx]["input_channel_num"] += 1 
+            layer_counters["layer_type"] += 1
+    else:
+        layer_counters["input_channel_num"] += 1 
 
 #selects the next option from the valid params
 def GenerateNextGridLayer(layer_idx, previous_ouput_channels, input_size):
@@ -316,11 +448,11 @@ def GenerateNextGridLayer(layer_idx, previous_ouput_channels, input_size):
     #how many posibilities for this layer are there
     num_of_layer_pos = len(valid_params["layer_type"]) * len(valid_params["conv_comb"]) * len(valid_params["output_channel"])
     print("Number of possibilities for layer = ", num_of_layer_pos)
-    
+    print("Counter: ", grid_search_layers_counters[layer_idx])
     #detect which of each potential to use from iterators to brute force all options
     chosen_layer_params["input_channel_num"] = valid_params["input_channel_num"][grid_search_layers_counters[layer_idx]["input_channel_num"]]
     chosen_layer_params["layer_type"]  = valid_params["layer_type"][grid_search_layers_counters[layer_idx]["layer_type"]]
-    con_com = valid_params["conv_comb"][grid_search_layers_counters[layer_idx]["layer_type"]]
+    con_com = valid_params["conv_comb"][grid_search_layers_counters[layer_idx]["conv_comb"]]
     chosen_layer_params["kernel_size"] = con_com[0] #kernel size
     chosen_layer_params["padding_size"] = con_com[1] #padding
     chosen_layer_params["stride_size"] = con_com[2] #stride
@@ -343,7 +475,7 @@ def GenerateNextGridLayer(layer_idx, previous_ouput_channels, input_size):
     #increase the counters for the future but only if the layer should be inc
     IncrementGridSearchIterator(layer_idx, grid_layer_to_inc, valid_params)
 
-    print(grid_search_layers_counters[layer_idx])
+    #print(grid_search_layers_counters[layer_idx])
 
     return chosen_layer_params, previous_ouput_channels, input_size
 
@@ -456,30 +588,23 @@ def GridSearch():
     
     return layers_params'''
     
+
 def ReinforcementSearch():
     print("Using reinforcement search")
     
     layers_params = list()
     
-    #define the state space
-    stateSpace = StateSpace()
-    stateSpace.add_state('layer_types', layer_types)
-    stateSpace.add_state('kernel_size', hp_kernel_size)
-    stateSpace.add_state('padding_size', hp_padding_size)
-    stateSpace.add_state('filter_num', hp_filter_num)
-    stateSpace.add_state('stride_size', hp_stride_size)
-    stateSpace.dump_states()
-    
     #test encoding a value
-    print("Encode test = ", stateSpace.encode(1, 5))
+    #print("Encode test = ", stateSpace.encode(1, 5))
     #test encoding a random net
-    state = stateSpace.encode_random_states(max_layers)
-    print(state)
+    
+    #inial state to use
+    '''state = stateSpace.encode_random_states(max_layers)
+    print("initial state = ", state)
     print("Decode test = ", stateSpace.decode(state))
     
     #get the next action from the controller pass in previous net (state)
-    controller = Controller(stateSpace)
-    actions = controller.get_action(state)  # get an action for the previous state
+    actions = controller.get_action(state)  # get an action for the previous state'''
     
 
     return layers_params
@@ -525,7 +650,7 @@ def BuildNetworkFromParameters(layer_params):
 
     return layers
 #what network should we try next
-def SelectNextNetwork():
+def SelectNextNetwork(reinforceSearch):
     print("Select from the search space our new net using a search strategy")
     
     layers = list() #create the layers to be generated
@@ -537,7 +662,7 @@ def SelectNextNetwork():
     elif SEARCH_STRAT == "Random_Search":
         layer_params = RandomizedSearch()  #randomised search
     elif SEARCH_STRAT == "RL_Search":
-        layer_params = ReinforcementSearch()  #reinforcement learning search
+        layer_params = reinforceSearch.SearchForNetwork()  #reinforcement learning search
         
     #build from layer_params
     layers = BuildNetworkFromParameters(layer_params)
@@ -623,6 +748,7 @@ def PredictNetworkPerformance(net, opt):
         loss, acc = FullyTrainAndTestNetwork(net, opt)
         
     print('loss: ', loss, 'Acc: ', acc)
+
     
     return (loss,acc)
 
@@ -680,12 +806,13 @@ def fit(epochs, net, loss_func, opt, train_dl, valid_dl, low_fidelity):
 def main():
     print("Begin")
     
-    print("cuda avialnabke: " + str(use_cuda)) 
+    print("cuda avialnable: " + str(use_cuda)) 
     if use_cuda:
         print(torch.cuda.get_device_name(0))
         print(torch.cuda.memory_allocated())
         print(torch.cuda.memory_cached())
     
+    ReinforceSearch = ReinforcementSearchObj()
     
     #keep looping until satisfied
     best_net = 0 #keep track of best nets
@@ -700,7 +827,7 @@ def main():
         #get the result of the previos net
         
         #Select the parameters for the network to test we want
-        net, opt = getModel(SelectNextNetwork())
+        net, opt = getModel(SelectNextNetwork(ReinforceSearch))
         #writer.add_graph(net, images)
         #writer.close()
         net.to(device)
@@ -712,6 +839,10 @@ def main():
         #Predict how well this network will perform
         loss, acc = PredictNetworkPerformance(net, opt)
         print("Finished prediction\n")
+        
+        #update the reinforce controller
+        if SEARCH_STRAT == "RL_Search":
+            ReinforceSearch.SetReward(acc)
         
         #add to results
         net_values.append(net)

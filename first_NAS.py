@@ -88,9 +88,9 @@ INPUT_IMAGE_SIZE = 28
 #Grid_Search
 #SEARCH_STRAT = "Grid_Search"
 #Random_Search
-#SEARCH_STRAT = "Random_Search"
+SEARCH_STRAT = "Random_Search"
 #Reinforcement
-SEARCH_STRAT = "RL_Search"
+#SEARCH_STRAT = "RL_Search"
 #Naive
 #PERFORMANCE_PREDICTOR = "Naive"
 #low fidelity
@@ -104,18 +104,6 @@ hp_kernel_size = [1,3,5]#,7]
 hp_padding_size = [0,1,3]
 hp_filter_num = [16,24,36]#,48]
 hp_stride_size = [1,2,3]
-
-#keep track of which layer combinations have been selected as we traverse all posibilities
-grid_layer_to_inc = 0
-
-grid_search_layers_counters = []
-#init the variable counters to 0
-for i in range(max_layers):
-    grid_search_layers_counters.append(dict())
-    grid_search_layers_counters[i]["input_channel_num"] = 0
-    grid_search_layers_counters[i]["layer_type"] = 0
-    grid_search_layers_counters[i]["conv_comb"] = 0
-    grid_search_layers_counters[i]["output_channel"] = 0
 
 #keep track of the accuracy for every iteration of all produced architectures
 architecture_list = dict()
@@ -379,105 +367,6 @@ def accuracy(out, yb):
     preds = torch.argmax(out, dim=1)    #find which index has highest probability for each batch array of probabilities 
     return (preds == yb).float().mean()
 
-#randomly selects from valid params
-def GenerateRandomLayer(layer_idx, previous_ouput_channels, input_size):
-    chosen_layer_params = dict()
-    
-    #get all the valid params to randomly select from, dict of param types each with possibilities
-    valid_params = GetValidLayerParams(previous_ouput_channels, input_size)
-    
-    #get input channels
-    chosen_layer_params["input_channel_num"] = random.choice(valid_params["input_channel_num"])
-    #decide on layer type (conv/pooling)
-    chosen_layer_params["layer_type"] = random.choice(valid_params["layer_type"])
-
-    print("sizes: " + str(len(valid_params["conv_comb"])))
-    con_com = random.choice(valid_params["conv_comb"])
-    chosen_layer_params["kernel_size"] = con_com[0] #kernel size
-    chosen_layer_params["padding_size"] = con_com[1] #padding
-    chosen_layer_params["stride_size"] = con_com[2] #stride
-    
-    #update so future layers now what input channels to use   
-    if chosen_layer_params["layer_type"] == "Convolution":
-        chosen_layer_params["output_channel"] = random.choice(valid_params["output_channel"])
-        previous_ouput_channels =  chosen_layer_params.get("output_channel")
-    else: #output channels will be same as they were previously
-        chosen_layer_params["output_channel"] = previous_ouput_channels
-   
-    #update input size to next layer
-    input_size = ((input_size - con_com[0]+2*con_com[1]) / con_com[2])+1
-    chosen_layer_params["output_size"] = input_size
-    
-    #log whats chosen
-    print("layer " + str(layer_idx) + ": " + chosen_layer_params["layer_type"] + " : " + str(chosen_layer_params["input_channel_num"]) + " : " + str(chosen_layer_params["output_channel"]) + " kernel: " + str(chosen_layer_params["kernel_size"]) + " padd: " + str(chosen_layer_params["padding_size"]) + " stride: " + str(chosen_layer_params["stride_size"]) + " Output_size: " + str(chosen_layer_params["output_size"]))
-    
-    return chosen_layer_params, previous_ouput_channels, input_size
-
-def IncrementGridSearchIterator(layer_idx, grid_layer_to_inc, valid_params):
-    #don't make changes to layers other than the one to increment
-    if grid_layer_to_inc != layer_idx:
-        return
-    
-    #assume unless told that we reset the layer to inc to 0
-    grid_layer_to_inc = 0
-    
-    layer_counters = grid_search_layers_counters[layer_idx]
-    #attempt io inc in order: input_channel/layer_type/conv_comb
-    if (layer_counters["input_channel_num"] +1 ) >= len(valid_params["input_channel_num"]):
-        layer_counters["input_channel_num"] = 0
-        if (layer_counters["layer_type"] + 1) >= len(valid_params["layer_type"]):
-             layer_counters["layer_type"] = 0
-             if (layer_counters["conv_comb"] + 1) >= len(valid_params["conv_comb"]):
-                 layer_counters["conv_comb"] = 0
-                 #we have tried all posibilities for this layer so now inc next by 1
-                 grid_layer_to_inc = layer_idx +1
-             else:
-                layer_counters["conv_comb"] += 1  
-        else:
-            layer_counters["layer_type"] += 1
-    else:
-        layer_counters["input_channel_num"] += 1 
-
-#selects the next option from the valid params
-def GenerateNextGridLayer(layer_idx, previous_ouput_channels, input_size):
-    chosen_layer_params = dict()
-    
-    #get the possible combinations to select from
-    valid_params = GetValidLayerParams(previous_ouput_channels, input_size)
-    
-    #how many posibilities for this layer are there
-    num_of_layer_pos = len(valid_params["layer_type"]) * len(valid_params["conv_comb"]) * len(valid_params["output_channel"])
-    print("Number of possibilities for layer = ", num_of_layer_pos)
-    print("Counter: ", grid_search_layers_counters[layer_idx])
-    #detect which of each potential to use from iterators to brute force all options
-    chosen_layer_params["input_channel_num"] = valid_params["input_channel_num"][grid_search_layers_counters[layer_idx]["input_channel_num"]]
-    chosen_layer_params["layer_type"]  = valid_params["layer_type"][grid_search_layers_counters[layer_idx]["layer_type"]]
-    con_com = valid_params["conv_comb"][grid_search_layers_counters[layer_idx]["conv_comb"]]
-    chosen_layer_params["kernel_size"] = con_com[0] #kernel size
-    chosen_layer_params["padding_size"] = con_com[1] #padding
-    chosen_layer_params["stride_size"] = con_com[2] #stride
-    
-    #update so future layers now what input channels to use   
-    if chosen_layer_params["layer_type"] == "Convolution":
-        chosen_layer_params["output_channel"] = valid_params["output_channel"][grid_search_layers_counters[layer_idx]["output_channel"]]
-        previous_ouput_channels =  chosen_layer_params.get("output_channel")
-    else: #output channels will be same as they were previously
-        chosen_layer_params["output_channel"] = previous_ouput_channels
-    
-    #update input size to next layer
-    input_size = ((input_size - con_com[0]+2*con_com[1]) / con_com[2])+1
-    chosen_layer_params["output_size"] = input_size
-    
-    #log whats chosen
-    print("layer " + str(layer_idx) + ": " + chosen_layer_params["layer_type"] + " : " + str(chosen_layer_params["input_channel_num"]) + " : " + str(chosen_layer_params["output_channel"]) + " kernel: " + str(chosen_layer_params["kernel_size"]) + " padd: " + str(chosen_layer_params["padding_size"]) + " stride: " + str(chosen_layer_params["stride_size"]) + " Output_size: " + str(chosen_layer_params["output_size"]))
-        
-    
-    #increase the counters for the future but only if the layer should be inc
-    IncrementGridSearchIterator(layer_idx, grid_layer_to_inc, valid_params)
-
-    #print(grid_search_layers_counters[layer_idx])
-
-    return chosen_layer_params, previous_ouput_channels, input_size
 
 #returns the search space of all potential options
 def GetValidLayerParams(previous_output_channels, input_size):
@@ -534,44 +423,161 @@ def GetValidLayerParams(previous_output_channels, input_size):
     #return all valid params
     return validParams
     
-
-
-def RandomizedSearch():
-    print("Using Randomized search")
-    
-    layers_params = list()
-    
-    #make all the layers
-    #initial input channel (colour channels)
-    current_ouput_channels = COLOUR_CHANNEL_NUM
-    #initialise input size
-    input_size = INPUT_IMAGE_SIZE
- 
-    for i in range(max_layers):
-        layer_params, current_ouput_channels, input_size = GenerateRandomLayer(i, current_ouput_channels, input_size)
-        layers_params.append(layer_params)
-    
-    return layers_params
    
+class RandomSearchObj:
+    def __init__(self):
+        print("init random search")
+        
+    def SelectNextNetwork(self):
+        layers_params = list()
+    
+        #make all the layers
+        #initial input channel (colour channels)
+        current_ouput_channels = COLOUR_CHANNEL_NUM
+        #initialise input size
+        input_size = INPUT_IMAGE_SIZE
+     
+        for i in range(max_layers):
+            layer_params, current_ouput_channels, input_size = self.GenerateRandomLayer(i, current_ouput_channels, input_size)
+            layers_params.append(layer_params)
+        
+        return layers_params
+    
+    def GenerateRandomLayer(self, layer_idx, previous_ouput_channels, input_size):
+        chosen_layer_params = dict()
+        
+        #get all the valid params to randomly select from, dict of param types each with possibilities
+        valid_params = GetValidLayerParams(previous_ouput_channels, input_size)
+        
+        #get input channels
+        chosen_layer_params["input_channel_num"] = random.choice(valid_params["input_channel_num"])
+        #decide on layer type (conv/pooling)
+        chosen_layer_params["layer_type"] = random.choice(valid_params["layer_type"])
+    
+        print("sizes: " + str(len(valid_params["conv_comb"])))
+        con_com = random.choice(valid_params["conv_comb"])
+        chosen_layer_params["kernel_size"] = con_com[0] #kernel size
+        chosen_layer_params["padding_size"] = con_com[1] #padding
+        chosen_layer_params["stride_size"] = con_com[2] #stride
+        
+        #update so future layers now what input channels to use   
+        if chosen_layer_params["layer_type"] == "Convolution":
+            chosen_layer_params["output_channel"] = random.choice(valid_params["output_channel"])
+            previous_ouput_channels =  chosen_layer_params.get("output_channel")
+        else: #output channels will be same as they were previously
+            chosen_layer_params["output_channel"] = previous_ouput_channels
+       
+        #update input size to next layer
+        input_size = ((input_size - con_com[0]+2*con_com[1]) / con_com[2])+1
+        chosen_layer_params["output_size"] = input_size
+        
+        #log whats chosen
+        print("layer " + str(layer_idx) + ": " + chosen_layer_params["layer_type"] + " : " + str(chosen_layer_params["input_channel_num"]) + " : " + str(chosen_layer_params["output_channel"]) + " kernel: " + str(chosen_layer_params["kernel_size"]) + " padd: " + str(chosen_layer_params["padding_size"]) + " stride: " + str(chosen_layer_params["stride_size"]) + " Output_size: " + str(chosen_layer_params["output_size"]))
+        
+        return chosen_layer_params, previous_ouput_channels, input_size
 
+class GridSearchObj:
+    def __init__(self):
+        print("init grid search")
+        
+        #keep track of which layer combinations have been selected as we traverse all posibilities
+        self.grid_layer_to_inc = 0
+    
+        self.grid_search_layers_counters = []
+        #init the variable counters to 0
+        for i in range(max_layers):
+            self.grid_search_layers_counters.append(dict())
+            self.grid_search_layers_counters[i]["input_channel_num"] = 0
+            self.grid_search_layers_counters[i]["layer_type"] = 0
+            self.grid_search_layers_counters[i]["conv_comb"] = 0
+            self.grid_search_layers_counters[i]["output_channel"] = 0
+        
+    def SelectNextNetwork(self):
+        print("Using Grid search")
+    
+        layers_params = list()
+        
+        #make all the layers
+        #initial input channel (colour channels)
+        current_ouput_channels = COLOUR_CHANNEL_NUM
+        #initialise input size
+        input_size = INPUT_IMAGE_SIZE
+     
+        for i in range(max_layers):
+            layer_params, current_ouput_channels, input_size = self.GenerateNextGridLayer(i, current_ouput_channels, input_size)
+            layers_params.append(layer_params)
+        
+        return layers_params
+    
+    def IncrementGridSearchIterator(self, layer_idx, grid_layer_to_inc, valid_params):
+         #don't make changes to layers other than the one to increment
+        if grid_layer_to_inc != layer_idx:
+            return -1
+    
+        #assume unless told that we reset the layer to inc to 0
+        grid_layer_to_inc = 0
+        
+        layer_counters = self.grid_search_layers_counters[layer_idx]
+        #attempt io inc in order: input_channel/layer_type/conv_comb
+        if (layer_counters["input_channel_num"] +1 ) >= len(valid_params["input_channel_num"]):
+            layer_counters["input_channel_num"] = 0
+            if (layer_counters["layer_type"] + 1) >= len(valid_params["layer_type"]):
+                 layer_counters["layer_type"] = 0
+                 if (layer_counters["conv_comb"] + 1) >= len(valid_params["conv_comb"]):
+                     layer_counters["conv_comb"] = 0
+                     #we have tried all posibilities for this layer so now inc next by 1
+                     grid_layer_to_inc = layer_idx +1
+                 else:
+                    layer_counters["conv_comb"] += 1  
+            else:
+                layer_counters["layer_type"] += 1
+        else:
+            layer_counters["input_channel_num"] += 1 
+            
+        return grid_layer_to_inc
 
-#produce every possible network one at a time
-def GridSearch():
-    print("Using Grid search")
+    #selects the next option from the valid params
+    def GenerateNextGridLayer(self, layer_idx, previous_ouput_channels, input_size):
+        chosen_layer_params = dict()
+        
+        #get the possible combinations to select from
+        valid_params = GetValidLayerParams(previous_ouput_channels, input_size)
+        
+        #how many posibilities for this layer are there
+        layer_counters = self.grid_search_layers_counters[layer_idx]
+        
+        num_of_layer_pos = len(valid_params["layer_type"]) * len(valid_params["conv_comb"]) * len(valid_params["output_channel"])
+        print("Number of possibilities for layer = ", num_of_layer_pos)
+        print("Counter: ", layer_counters)
+        #detect which of each potential to use from iterators to brute force all options
+        chosen_layer_params["input_channel_num"] = valid_params["input_channel_num"][layer_counters["input_channel_num"]]
+        chosen_layer_params["layer_type"]  = valid_params["layer_type"][layer_counters["layer_type"]]
+        con_com = valid_params["conv_comb"][layer_counters["conv_comb"]]
+        chosen_layer_params["kernel_size"] = con_com[0] #kernel size
+        chosen_layer_params["padding_size"] = con_com[1] #padding
+        chosen_layer_params["stride_size"] = con_com[2] #stride
+        
+        #update so future layers now what input channels to use   
+        if chosen_layer_params["layer_type"] == "Convolution":
+            chosen_layer_params["output_channel"] = valid_params["output_channel"][layer_counters["output_channel"]]
+            previous_ouput_channels =  chosen_layer_params.get("output_channel")
+        else: #output channels will be same as they were previously
+            chosen_layer_params["output_channel"] = previous_ouput_channels
+        
+        #update input size to next layer
+        input_size = ((input_size - con_com[0]+2*con_com[1]) / con_com[2])+1
+        chosen_layer_params["output_size"] = input_size
+        
+        #log whats chosen
+        print("layer " + str(layer_idx) + ": " + chosen_layer_params["layer_type"] + " : " + str(chosen_layer_params["input_channel_num"]) + " : " + str(chosen_layer_params["output_channel"]) + " kernel: " + str(chosen_layer_params["kernel_size"]) + " padd: " + str(chosen_layer_params["padding_size"]) + " stride: " + str(chosen_layer_params["stride_size"]) + " Output_size: " + str(chosen_layer_params["output_size"]))
+            
+        
+        #increase the counters for the future but only if the layer should be inc
+        self.IncrementGridSearchIterator(layer_idx, self.grid_layer_to_inc, valid_params)
     
-    layers_params = list()
+        #print(grid_search_layers_counters[layer_idx])
     
-    #make all the layers
-    #initial input channel (colour channels)
-    current_ouput_channels = COLOUR_CHANNEL_NUM
-    #initialise input size
-    input_size = INPUT_IMAGE_SIZE
- 
-    for i in range(max_layers):
-        layer_params, current_ouput_channels, input_size = GenerateNextGridLayer(i, current_ouput_channels, input_size)
-        layers_params.append(layer_params)
-    
-    return layers_params
+        return chosen_layer_params, previous_ouput_channels, input_size
 
 '''def GradientBasedSearch(iteration):
     layers_params = list()
@@ -648,25 +654,6 @@ def BuildNetworkFromParameters(layer_params):
             print("building FC" + " " + str(num_input_features) + " " + str(num_output_classes))
             layers.append(("FC", nn.Linear(int(num_input_features), num_output_classes)))
 
-    return layers
-#what network should we try next
-def SelectNextNetwork(reinforceSearch):
-    print("Select from the search space our new net using a search strategy")
-    
-    layers = list() #create the layers to be generated
-    layer_params = dict()
-    
-    #use correct search strat
-    if SEARCH_STRAT == "Grid_Search": 
-        layer_params = GridSearch() #grid search
-    elif SEARCH_STRAT == "Random_Search":
-        layer_params = RandomizedSearch()  #randomised search
-    elif SEARCH_STRAT == "RL_Search":
-        layer_params = reinforceSearch.SearchForNetwork()  #reinforcement learning search
-        
-    #build from layer_params
-    layers = BuildNetworkFromParameters(layer_params)
-    
     return layers
     
 
@@ -812,7 +799,16 @@ def main():
         print(torch.cuda.memory_allocated())
         print(torch.cuda.memory_cached())
     
-    ReinforceSearch = ReinforcementSearchObj()
+    SearchObj = 0
+    
+    #init the right search type
+    if SEARCH_STRAT == "Grid_Search": 
+        SearchObj = GridSearchObj()
+    elif SEARCH_STRAT == "Random_Search":
+        SearchObj = RandomSearchObj()  #randomised search
+    elif SEARCH_STRAT == "RL_Search":
+        SearchObj = ReinforcementSearchObj()  #reinforcement learning search    
+    
     
     #keep looping until satisfied
     best_net = 0 #keep track of best nets
@@ -827,11 +823,14 @@ def main():
         #get the result of the previos net
         
         #Select the parameters for the network to test we want
-        net, opt = getModel(SelectNextNetwork(ReinforceSearch))
+        layer_params = SearchObj.SelectNextNetwork()
+        #build the layers
+        layers = BuildNetworkFromParameters(layer_params)
+        #build the final net
+        net, opt = getModel(layers)
+        net.to(device)
         #writer.add_graph(net, images)
         #writer.close()
-        net.to(device)
-        
         
         print("\nmade the selected net")
         print(net)
@@ -842,7 +841,7 @@ def main():
         
         #update the reinforce controller
         if SEARCH_STRAT == "RL_Search":
-            ReinforceSearch.SetReward(acc)
+            SearchObj.SetReward(acc)
         
         #add to results
         net_values.append(net)

@@ -188,29 +188,21 @@ class StateSpace:
 
         return state_values
     
-    def decodeFromIndex(self, idx_states):
-        state_values = []
-        for id, state_val_idx in enumerate(idx_states):
-            value = self.get_state_val(id, state_val_idx)
-            state_values.append(value)
-
-        return state_values
-    
     def GenerateRandomLayerParams(self, layer_num, must_be_valid=False):
         while True:
             randomEncodedStates = self.encode_random_states(layer_num)
             
             #if must be valid then don't exit till it's valid
-            if (not must_be_valid) or IsLayerParamsValid(self.GenerateLayerParams(randomEncodedStates, use_plain_decode=True)):
+            if (not must_be_valid) or IsLayerParamsValid(self.GenerateLayerParams(randomEncodedStates)):
                 return randomEncodedStates
         
-    def GenerateLayerParams(self, state_index_values, use_plain_decode=False):
+    def GenerateLayerParams(self, state_index_values):
         print("Generate layer params")
         
-        if use_plain_decode:
-            state_values = self.decode(state_index_values)
-        else:
-            state_values = self.decodeFromIndex(state_index_values)
+        #if use_plain_decode:
+        state_values = self.decode(state_index_values)
+        #else:
+         #   state_values = self.decodeFromIndex(state_index_values)
         
         print("state values = ", state_values) 
         layers_params = list()
@@ -271,7 +263,7 @@ class ReinforcementSearchObj:
         #initial state to use to create others from (use a valid network)
         self.state = self.stateSpace.GenerateRandomLayerParams(max_layers, must_be_valid=True)
             
-        print("Found a valid net")
+        print("Found a valid initial net", self.state, "\n")
         
     def SelectNextNetwork(self):
         print("Using reinforcement search")
@@ -292,7 +284,7 @@ class ReinforcementSearchObj:
         print(actions)
         
         #state is now set to first action
-        #self.state = actions[0]
+        self.state = actions
     
         #generate the architecture layer params from the actions
         #decode the produced states
@@ -404,13 +396,15 @@ class Controller:
             out_max = max(output)
             for i in range(len(output)):
                 if output[i] == out_max:
-                    output = i
+                    #i is index of max value (state param to use)
+                    output = np.zeros((1, 3), dtype=np.float32)
+                    output[np.arange(1), i] = i + 1
                     break
-            print(output)
+            #print(output)
             outputs += [output]
            
         #outputs = torch.stack(outputs).squeeze(1)
-        print("policy actions produced:\n", outputs)
+        #print("policy actions produced:\n", outputs)
         #action_index = Categorical(logits=outputs).sample().unsqueeze(1)
         #print("action_index: ", action_index)
         
@@ -418,8 +412,8 @@ class Controller:
 
     def get_action(self, state):
         print("get action from controller to return the new architecture")
-        initial_state = self.stateSpace[0]
-        size = initial_state['size']
+        #initial_state = self.stateSpace[0]
+        #size = initial_state['size']
 
         #if state[0].shape != (1, size):
         #    state = state[0].reshape((1, size)).astype('int32')
@@ -918,7 +912,7 @@ def main():
         layer_params = SearchObj.SelectNextNetwork()
         
         if layer_params == False:
-            print("Net is Invalid")
+            print("Net is Invalid\n")
              #update the reinforce controller
             if SEARCH_STRAT == "RL_Search":
                 SearchObj.SetReward(0)

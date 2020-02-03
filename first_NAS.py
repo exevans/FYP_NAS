@@ -512,13 +512,11 @@ def GetValidLayerParams(previous_output_channels, input_size):
     return validParams
     
 def IsLayerParamsValid(layers_params):
-    #init to 0 for first
-    previous_output_channels = COLOUR_CHANNEL_NUM
     for layer_id, layer_param in enumerate(layers_params):
         if (layer_id == 0) and (layer_param["layer_type"] != "Convolution"):
             return False
         
-        input_size = previous_output_channels
+        input_size = layer_param["output_size"]
         kernel_size = layer_param["kernel_size"]
         padding_size = layer_param["padding_size"]
         stride_size = layer_param["stride_size"]

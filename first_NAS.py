@@ -224,24 +224,6 @@ class StateSpace:
                 layers_params.append(layer_params)
                 previous_output_channels = layer_params["output_channel"]
                 print("layer " + str(layer_id) + ": " + layer_params["layer_type"] + " : " + str(layer_params["input_channel_num"]) + " : " + str(layer_params["output_channel"]) + " kernel: " + str(layer_params["kernel_size"]) + " padd: " + str(layer_params["padding_size"]) + " stride: " + str(layer_params["stride_size"]))
-       
-        '''for layer_id in range(num_layers):  
-            layer_params = dict()
-            
-            base_idx = layer_id * self.state_count
-            
-            layer_params["input_channel_num"] = previous_output_channels
-            #decide on layer type (conv/pooling)
-            layer_params["layer_type"] = state_values[base_idx]
-            layer_params["kernel_size"] = state_values[base_idx + 1] #kernel size
-            layer_params["padding_size"] = state_values[base_idx + 2] #padding
-            layer_params["stride_size"] = state_values[base_idx + 3] #stride
-            layer_params["filter_num"] = state_values[base_idx + 4] #stride
-            
-            #append to the list of all layers
-            layers_params.append(layer_params)
-            
-            previous_output_channels = layer_params["filter_num"]'''
         
         return layers_params
     
@@ -310,24 +292,6 @@ class ReinforcementSearchObj:
             return False
     
         return layers_params
-    
-    '''def GenerateLayerParams(action_values):
-        print ("Layer values: \n", layer_values)
-        for i in range(actions):
-            #calc which layer we are on 5 params per layer
-            layer_id = i/stateSpace.
-            
-            chosen_layer_params = dict()
-            chosen_layer_params["input_channel_num"] = random.choice(valid_params["input_channel_num"])
-            #decide on layer type (conv/pooling)
-            chosen_layer_params["layer_type"] = actions[0]
-            chosen_layer_params["kernel_size"] = actions[1] #kernel size
-            chosen_layer_params["padding_size"] = actions[2] #padding
-            chosen_layer_params["stride_size"] = actions[3] #stride
-            chosen_layer_params["filter_num"] = actions[4] #stride
-            layers_params.append(layer_params)
-        
-        return layers_params'''
     
     def SetReward(self, acc):
         return 0
@@ -728,27 +692,6 @@ class GridSearchObj:
     
     
     return layers_params'''
-    
-
-def ReinforcementSearch():
-    print("Using reinforcement search")
-    
-    layers_params = list()
-    
-    #test encoding a value
-    #print("Encode test = ", stateSpace.encode(1, 5))
-    #test encoding a random net
-    
-    #inial state to use
-    '''state = stateSpace.encode_random_states(max_layers)
-    print("initial state = ", state)
-    print("Decode test = ", stateSpace.decode(state))
-    
-    #get the next action from the controller pass in previous net (state)
-    actions = controller.get_action(state)  # get an action for the previous state'''
-    
-
-    return layers_params
 
 #from the chosen params for each layer actaully build layers of the network
 def BuildNetworkFromParameters(layer_params):

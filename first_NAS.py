@@ -88,9 +88,9 @@ INPUT_IMAGE_SIZE = 28
 #Grid_Search
 #SEARCH_STRAT = "Grid_Search"
 #Random_Search
-SEARCH_STRAT = "Random_Search"
+#SEARCH_STRAT = "Random_Search"
 #Reinforcement
-#SEARCH_STRAT = "RL_Search"
+SEARCH_STRAT = "RL_Search"
 #Naive
 #PERFORMANCE_PREDICTOR = "Naive"
 #low fidelity
@@ -189,6 +189,62 @@ class StateSpace:
 
         return state_values
     
+    def decodeFromIndex(self, idx_states):
+        state_values = []
+        for id, state_val_idx in enumerate(idx_states):
+            value = self.get_state_val(id, state_val_idx)
+            state_values.append(value)
+
+        return state_values
+    
+    def GenerateLayerParams(self, state_index_values, use_plain_decode=False):
+        print("Generate layer params")
+        
+        if use_plain_decode:
+            state_values = self.decode(state_index_values)
+        else:
+            state_values = self.decodeFromIndex(state_index_values)
+        
+        print("state values = ", state_values) 
+        layers_params = list()
+        layer_params = dict()
+        #calc the num of layers we are producing
+        previous_output_channels = 1
+        #num_layers = state_values/self.state_count_
+        
+        for i, val in enumerate(state_values):
+            layer_id = int(i/self.state_count_)
+            state = self[i]
+            layer_params[state["name"]] = val
+            #when we have read all states for a layer append to the list
+            val = (i+1) % self.state_count_
+            if val == 0:    #add in the "input_channel_num" as it isn't a state (depends on the output)
+                print("FinishLayer: ", i, " ", self.state_count_-1)
+                layer_params["input_channel_num"] = previous_output_channels
+                layers_params.append(layer_params)
+                previous_output_channels = layer_params["output_channel"]
+                print("layer " + str(layer_id) + ": " + layer_params["layer_type"] + " : " + str(layer_params["input_channel_num"]) + " : " + str(layer_params["output_channel"]) + " kernel: " + str(layer_params["kernel_size"]) + " padd: " + str(layer_params["padding_size"]) + " stride: " + str(layer_params["stride_size"]))
+       
+        '''for layer_id in range(num_layers):  
+            layer_params = dict()
+            
+            base_idx = layer_id * self.state_count
+            
+            layer_params["input_channel_num"] = previous_output_channels
+            #decide on layer type (conv/pooling)
+            layer_params["layer_type"] = state_values[base_idx]
+            layer_params["kernel_size"] = state_values[base_idx + 1] #kernel size
+            layer_params["padding_size"] = state_values[base_idx + 2] #padding
+            layer_params["stride_size"] = state_values[base_idx + 3] #stride
+            layer_params["filter_num"] = state_values[base_idx + 4] #stride
+            
+            #append to the list of all layers
+            layers_params.append(layer_params)
+            
+            previous_output_channels = layer_params["filter_num"]'''
+        
+        return layers_params
+    
     def dump_states(self):
         print("dumping StateSpace Content:")
         #print(self.states)
@@ -203,21 +259,28 @@ class ReinforcementSearchObj:
         print("init reinforce search")
         self.stateSpace = StateSpace()
         
-        #define the state space
-        #stateSpace = StateSpace()
-        self.stateSpace.add_state('layer_types', layer_types)
+        #define the states
+        self.stateSpace.add_state('layer_type', layer_types)
         self.stateSpace.add_state('kernel_size', hp_kernel_size)
         self.stateSpace.add_state('padding_size', hp_padding_size)
-        self.stateSpace.add_state('filter_num', hp_filter_num)
         self.stateSpace.add_state('stride_size', hp_stride_size)
+        self.stateSpace.add_state('output_channel', hp_filter_num)
         #stateSpace.dump_states()
         
         self.controller = Controller(self.stateSpace)
         
-        #initial state to use
-        self.state = self.stateSpace.encode_random_states(max_layers)
+        #initial state to use to create others from (use a valid network)
         
-    def SearchForNetwork(self):
+        self.state = self.stateSpace.encode_random_states(max_layers)
+        #print("Randomized state: ", self.state)
+        #print("decoded state: ", self.stateSpace.decode(self.state))
+        while not IsLayerParamsValid(self.stateSpace.GenerateLayerParams(self.state, True)):
+            print("invalid")
+            self.state = self.stateSpace.encode_random_states(max_layers)
+            
+        print("Found a valid net")
+        
+    def SelectNextNetwork(self):
         print("Using reinforcement search")
         
         layers_params = list()
@@ -226,18 +289,45 @@ class ReinforcementSearchObj:
         #print("Encode test = ", stateSpace.encode(1, 5))
         #test encoding a random net
         
-        print("initial state = ", self.state)
-        print("Decode test = ", self.stateSpace.decode(self.state))
+        #print("initial state = ", self.state)
+        #print("Decode test = ", self.stateSpace.decode(self.state))
         
         #get the next action from the controller pass in previous net (state)
         actions = self.controller.get_action(self.state)  # get an action for the previous state
         
         print("Got the actions")
+        print(actions)
         
         #state is now set to first action
-        self.state = actions[0]
+        #self.state = actions[0]
+    
+        #generate the architecture layer params from the actions
+        #decode the produced states
+        layers_params = self.stateSpace.GenerateLayerParams(actions)
+
+        #check the layer params are valid otherwise no point building the net
+        if not IsLayerParamsValid(layers_params):
+            return False
     
         return layers_params
+    
+    '''def GenerateLayerParams(action_values):
+        print ("Layer values: \n", layer_values)
+        for i in range(actions):
+            #calc which layer we are on 5 params per layer
+            layer_id = i/stateSpace.
+            
+            chosen_layer_params = dict()
+            chosen_layer_params["input_channel_num"] = random.choice(valid_params["input_channel_num"])
+            #decide on layer type (conv/pooling)
+            chosen_layer_params["layer_type"] = actions[0]
+            chosen_layer_params["kernel_size"] = actions[1] #kernel size
+            chosen_layer_params["padding_size"] = actions[2] #padding
+            chosen_layer_params["stride_size"] = actions[3] #stride
+            chosen_layer_params["filter_num"] = actions[4] #stride
+            layers_params.append(layer_params)
+        
+        return layers_params'''
     
     def SetReward(self, acc):
         return 0
@@ -252,27 +342,29 @@ class Agent(nn.Module):
         self.i2o = nn.Linear(input_size + hidden_size, output_size) #input to output layer
         self.softmax = nn.LogSoftmax(dim = 1) #softmax for classification'''
 
-        self.lstm = nn.LSTMCell(input_size=3, hidden_size=hidden_size)#, num_layers=1, batch_first=True)
-        self.decoder = nn.Linear(hidden_size, 3)
+        #self.lstm = nn.LSTMCell(input_size=3, hidden_size=hidden_size)#, num_layers=1, batch_first=True)
+        self.rnn = nn.RNN(input_size=3, hidden_size=3, batch_first=True)
+        self.fc = nn.Linear(hidden_size, 3)
         
         self.hidden_size = hidden_size
         
         self.hidden = self.init_hidden()
-        self.h_t, self.c_t = self.hidden
+        #self.h_t, self.c_t = self.hidden
     
-    def forward(self, inp, hidden):
+    def forward(self, input, hidden):
         #outputs = []
         #self.h_t, self.c_t = self.hidden
-        
+        self.hidden = self.init_hidden()
         #for i in range(self.num_steps):
            # input_data = self.embedding(step_data)
-        print("Feeding into nn\n", inp)#, "\nhidden:\n", hidden)
-        self.h_t, self.c_t = self.lstm(inp, (self.h_t, self.c_t))
+        #input = input.view(1, 1, -1)
+        #print("Feeding into rnn\n", input, "\n", hidden)#, "\nhidden:\n", hidden)
+        #self.h_t, self.c_t = self.lstm(input, (self.h_t, self.c_t))
         
-        #]out, (h_t, c_t) = self.lstm(inp, hidden)
+        output, hidden = self.rnn(input, hidden)
         #print("After lstm call:\n", self.h_t, " \n", self.c_t)
          
-        output = self.decoder(self.h_t)
+        #output = self.fc(self.h_t)
 
         #output = h_t
            # Add drop out
@@ -283,14 +375,14 @@ class Agent(nn.Module):
 
         #outputs = torch.stack(outputs).squeeze(1)
         
-        return output
+        return output, hidden
 
     def init_hidden(self):
-        h_t = torch.zeros(1, self.hidden_size)
-        c_t = torch.zeros(1, self.hidden_size)
+        hidden = torch.zeros(1, 1, self.hidden_size)
+        #c_t = torch.zeros(1, self.hidden_size)
 
-        #return hidden
-        return (h_t, c_t)
+        return hidden
+        #return (h_t, c_t)
 
 
 class Controller:
@@ -298,35 +390,56 @@ class Controller:
         print("create controller")
         
         self.stateSpace = stateSpace
-        self.agent = Agent(3, 64, 3*5)
+        self.agent = Agent(3, 3, 3*5)
         print("Agent:\n", self.agent)
         
     def policy_network(self, state, max_layers):
         #state is first input of the previous network
         #other are fed in internally
+        
+        #print("policy_network input state ", state)
+        
         outputs = []
         hidden = self.agent.init_hidden()
         # we provide a flat list of chained input-output to the RNN
         #list of hyper params for each layer
         for i in range(self.stateSpace.state_count_ * max_layers):
+            #get the state id independent of layer
             state_id = i % self.stateSpace.state_count_
+            #get the state for the current i
             state_space = self.stateSpace[i]
             size = state_space['size']
             
             
             inState_var = torch.from_numpy(state[i])#.flatten())
-            print("input to the rnn", inState_var)
-            output = self.agent(inState_var, hidden)
-            print("output of the rnn", output)
+            #print("input to the rnn", inState_var)
+            #print("pass input into rnn")
+            #print("input dims = ", inState_var.shape)
             
+            inState_var = inState_var.view(1,1,-1)
+            #print("input dims = ", inState_var.shape)
+            
+            output, hidden = self.agent(inState_var, hidden)
+            output=output.squeeze()
+            #print("output of the rnn", output, len(output))
+            
+            #Get the highest idx
+            #output = output.index(torch.max(output.data))
+            
+            out_max = max(output)
+            for i in range(len(output)):
+                if output[i] == out_max:
+                    output = i
+                    break
+            print(output)
             outputs += [output]
            
-        outputs = torch.stack(outputs).squeeze(1)
+        #outputs = torch.stack(outputs).squeeze(1)
         print("policy actions produced:\n", outputs)
-        action_index = Categorical(logits=outputs).sample().unsqueeze(1)
-        print("action_index: ", action_index)
+        #action_index = Categorical(logits=outputs).sample().unsqueeze(1)
+        #print("action_index: ", action_index)
         
-        return action_index
+        return outputs
 
     def get_action(self, state):
         print("get action from controller to return the new architecture")
@@ -338,7 +451,7 @@ class Controller:
         #else:
         #    state = state[0]
 
-        print("State input to Controller for Action : ", state, " -> ")
+        #print("State input to Controller for Action : ", state, " -> ")
 
         #for l in range(layer_num):
          #   for i in range(state.state_count_):
@@ -423,6 +536,28 @@ def GetValidLayerParams(previous_output_channels, input_size):
     #return all valid params
     return validParams
     
+def IsLayerParamsValid(layers_params):
+    #init to 0 for first
+    previous_output_channels = COLOUR_CHANNEL_NUM
+    for layer_param in layers_params:
+        if (previous_output_channels == 1) and (layer_param["layer_type"] == "Convolution"):
+            return False
+        
+        input_size = previous_output_channels
+        kernel_size = layer_param["kernel_size"]
+        padding_size = layer_param["padding_size"]
+        stride_size = layer_param["stride_size"]
+       
+        if (((input_size - kernel_size+2*padding_size)%stride_size)) !=0:    #need to consider actual size
+            return False
+        elif padding_size >= (kernel_size/2):
+            return False
+        elif (((input_size - kernel_size+2*padding_size)/stride_size))+1 <=0:#output size must be > 0
+            return False
+            
+        previous_output_channels = layer_param["output_channel"]
+    
+    return True
    
 class RandomSearchObj:
     def __init__(self):
@@ -509,13 +644,13 @@ class GridSearchObj:
         
         return layers_params
     
-    def IncrementGridSearchIterator(self, layer_idx, grid_layer_to_inc, valid_params):
+    def IncrementGridSearchIterator(self, layer_idx, valid_params):
          #don't make changes to layers other than the one to increment
-        if grid_layer_to_inc != layer_idx:
+        if self.grid_layer_to_inc != layer_idx:
             return -1
     
         #assume unless told that we reset the layer to inc to 0
-        grid_layer_to_inc = 0
+        self.grid_layer_to_inc = 0
         
         layer_counters = self.grid_search_layers_counters[layer_idx]
         #attempt io inc in order: input_channel/layer_type/conv_comb
@@ -526,7 +661,7 @@ class GridSearchObj:
                  if (layer_counters["conv_comb"] + 1) >= len(valid_params["conv_comb"]):
                      layer_counters["conv_comb"] = 0
                      #we have tried all posibilities for this layer so now inc next by 1
-                     grid_layer_to_inc = layer_idx +1
+                     self.grid_layer_to_inc = layer_idx +1
                  else:
                     layer_counters["conv_comb"] += 1  
             else:
@@ -534,7 +669,7 @@ class GridSearchObj:
         else:
             layer_counters["input_channel_num"] += 1 
             
-        return grid_layer_to_inc
+        #return self.grid_layer_to_inc
 
     #selects the next option from the valid params
     def GenerateNextGridLayer(self, layer_idx, previous_ouput_channels, input_size):
@@ -617,6 +752,9 @@ def ReinforcementSearch():
 
 #from the chosen params for each layer actaully build layers of the network
 def BuildNetworkFromParameters(layer_params):
+    
+    #before building check the net is valkidf
+    
     layers = list()
     
     for i,params in enumerate(layer_params):
@@ -824,33 +962,40 @@ def main():
         
         #Select the parameters for the network to test we want
         layer_params = SearchObj.SelectNextNetwork()
-        #build the layers
-        layers = BuildNetworkFromParameters(layer_params)
-        #build the final net
-        net, opt = getModel(layers)
-        net.to(device)
-        #writer.add_graph(net, images)
-        #writer.close()
         
-        print("\nmade the selected net")
-        print(net)
-        
-        #Predict how well this network will perform
-        loss, acc = PredictNetworkPerformance(net, opt)
-        print("Finished prediction\n")
-        
-        #update the reinforce controller
-        if SEARCH_STRAT == "RL_Search":
-            SearchObj.SetReward(acc)
-        
-        #add to results
-        net_values.append(net)
-        net_results.append(acc)
-        
-        #keep track of best net
-        if acc > best_net_acc:
-            best_net_acc = acc
-            best_net = net
+        if layer_params == False:
+            "Net is Invalid"
+             #update the reinforce controller
+            if SEARCH_STRAT == "RL_Search":
+                SearchObj.SetReward(0)
+        else:
+            #build the layers
+            layers = BuildNetworkFromParameters(layer_params)
+            #build the final net
+            net, opt = getModel(layers)
+            net.to(device)
+            #writer.add_graph(net, images)
+            #writer.close()
+            
+            print("\nmade the selected net")
+            print(net)
+            
+            #Predict how well this network will perform
+            loss, acc = PredictNetworkPerformance(net, opt)
+            print("Finished prediction\n")
+            
+            #update the reinforce controller
+            if SEARCH_STRAT == "RL_Search":
+                SearchObj.SetReward(acc)
+            
+            #add to results
+            net_values.append(net)
+            net_results.append(acc)
+            
+            #keep track of best net
+            if acc > best_net_acc:
+                best_net_acc = acc
+                best_net = net
     
     print("Best found net")
     print(best_net)

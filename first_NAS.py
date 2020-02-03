@@ -208,9 +208,10 @@ class StateSpace:
         print("state values = ", state_values) 
         layers_params = list()
         layer_params = dict()
-        #calc the num of layers we are producing
+        #keep track of the output channels of each layer (input channels to nect)
         previous_output_channels = 1
-        #num_layers = state_values/self.state_count_
+        #keep track of input size of each layer (output size of previous)
+        input_size = INPUT_IMAGE_SIZE
         
         for i, val in enumerate(state_values):
             layer_id = int(i/self.state_count_)
@@ -223,6 +224,10 @@ class StateSpace:
                 layer_params["input_channel_num"] = previous_output_channels
                 layers_params.append(layer_params)
                 previous_output_channels = layer_params["output_channel"]
+                
+                #add output size so we can set up FC correctly for final layer
+                input_size = ((input_size - layer_params["kernel_size"]+2*layer_params["padding_size"]) / layer_params["stride_size"])+1
+                layer_params["output_size"] = input_size
                 print("layer " + str(layer_id) + ": " + layer_params["layer_type"] + " : " + str(layer_params["input_channel_num"]) + " : " + str(layer_params["output_channel"]) + " kernel: " + str(layer_params["kernel_size"]) + " padd: " + str(layer_params["padding_size"]) + " stride: " + str(layer_params["stride_size"]))
         
         return layers_params
@@ -503,8 +508,8 @@ def GetValidLayerParams(previous_output_channels, input_size):
 def IsLayerParamsValid(layers_params):
     #init to 0 for first
     previous_output_channels = COLOUR_CHANNEL_NUM
-    for layer_param in layers_params:
-        if (previous_output_channels == 1) and (layer_param["layer_type"] == "Convolution"):
+    for layer_id, layer_param in enumerate(layers_params):
+        if (layer_id == 1) and (layer_param["layer_type"] != "Convolution"):
             return False
         
         input_size = previous_output_channels

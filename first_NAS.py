@@ -164,7 +164,6 @@ class StateSpace:
     
     def encode_random_states(self, layer_num):
         states = []
-
         for layer in range(layer_num):
             for state_id in range( self.state_count_):
                 #get relevent state
@@ -197,6 +196,14 @@ class StateSpace:
 
         return state_values
     
+    def GenerateRandomLayerParams(self, layer_num, must_be_valid=False):
+        while True:
+            randomEncodedStates = self.encode_random_states(layer_num)
+            
+            #if must be valid then don't exit till it's valid
+            if (not must_be_valid) or IsLayerParamsValid(self.GenerateLayerParams(randomEncodedStates, use_plain_decode=True)):
+                return randomEncodedStates
+        
     def GenerateLayerParams(self, state_index_values, use_plain_decode=False):
         print("Generate layer params")
         
@@ -209,7 +216,7 @@ class StateSpace:
         layers_params = list()
         layer_params = dict()
         #keep track of the output channels of each layer (input channels to nect)
-        previous_output_channels = 1
+        previous_output_channels = COLOUR_CHANNEL_NUM
         #keep track of input size of each layer (output size of previous)
         input_size = INPUT_IMAGE_SIZE
         
@@ -220,15 +227,20 @@ class StateSpace:
             #when we have read all states for a layer append to the list
             val = (i+1) % self.state_count_
             if val == 0:    #add in the "input_channel_num" as it isn't a state (depends on the output)
-                print("FinishLayer: ", i, " ", self.state_count_-1)
+                #print("FinishLayer: ", i, " ", self.state_count_-1)
                 layer_params["input_channel_num"] = previous_output_channels
-                layers_params.append(layer_params)
-                previous_output_channels = layer_params["output_channel"]
                 
                 #add output size so we can set up FC correctly for final layer
                 input_size = ((input_size - layer_params["kernel_size"]+2*layer_params["padding_size"]) / layer_params["stride_size"])+1
                 layer_params["output_size"] = input_size
+                
+                #add this layer param to overall list
+                layers_params.append(layer_params)
+                previous_output_channels = layer_params["output_channel"]
+                
                 print("layer " + str(layer_id) + ": " + layer_params["layer_type"] + " : " + str(layer_params["input_channel_num"]) + " : " + str(layer_params["output_channel"]) + " kernel: " + str(layer_params["kernel_size"]) + " padd: " + str(layer_params["padding_size"]) + " stride: " + str(layer_params["stride_size"]))
+                # create a new layer_params for next
+                layer_params = dict() 
         
         return layers_params
     
@@ -257,13 +269,7 @@ class ReinforcementSearchObj:
         self.controller = Controller(self.stateSpace)
         
         #initial state to use to create others from (use a valid network)
-        
-        self.state = self.stateSpace.encode_random_states(max_layers)
-        #print("Randomized state: ", self.state)
-        #print("decoded state: ", self.stateSpace.decode(self.state))
-        while not IsLayerParamsValid(self.stateSpace.GenerateLayerParams(self.state, True)):
-            print("invalid")
-            self.state = self.stateSpace.encode_random_states(max_layers)
+        self.state = self.stateSpace.GenerateRandomLayerParams(max_layers, must_be_valid=True)
             
         print("Found a valid net")
         
@@ -509,7 +515,7 @@ def IsLayerParamsValid(layers_params):
     #init to 0 for first
     previous_output_channels = COLOUR_CHANNEL_NUM
     for layer_id, layer_param in enumerate(layers_params):
-        if (layer_id == 1) and (layer_param["layer_type"] != "Convolution"):
+        if (layer_id == 0) and (layer_param["layer_type"] != "Convolution"):
             return False
         
         input_size = previous_output_channels
@@ -525,6 +531,8 @@ def IsLayerParamsValid(layers_params):
             return False
             
         previous_output_channels = layer_param["output_channel"]
+    
+    print("net passed: ")
     
     return True
    
@@ -912,7 +920,7 @@ def main():
         layer_params = SearchObj.SelectNextNetwork()
         
         if layer_params == False:
-            "Net is Invalid"
+            print("Net is Invalid")
              #update the reinforce controller
             if SEARCH_STRAT == "RL_Search":
                 SearchObj.SetReward(0)

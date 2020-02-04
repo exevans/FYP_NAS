@@ -545,23 +545,7 @@ def GetValidLayerParams(previous_output_channels, input_size):
     #return all valid params
     return validParams
     
-def IsLayerParamsValid(layers_params):
-    '''for layer_id, layer_param in enumerate(layers_params):
-        if (layer_id == 0) and (layer_param["layer_type"] != "Convolution"):
-            return False
-        
-        input_size = layer_param["input_size"]
-        kernel_size = layer_param["kernel_size"]
-        padding_size = layer_param["padding_size"]
-        stride_size = layer_param["stride_size"]
-       
-        if (((input_size - kernel_size+2*padding_size)%stride_size)) !=0:    #need to consider actual size
-            return False
-        elif padding_size >= (kernel_size/2):
-            return False
-        elif (((input_size - kernel_size+2*padding_size)/stride_size))+1 <=0:#output size must be > 0
-            return False'''
-        
+def IsLayerParamsValid(layers_params):        
     for layer_id, layer_param in enumerate(layers_params):    
         input_size = layer_param["input_size"]
         input_channel_num = layer_param["input_channel_num"]
@@ -580,7 +564,8 @@ def IsLayerParamsValid(layers_params):
         if (kernel_size, padding_size, stride_size) not in validParams["conv_comb"]:
             return False
         #can't change channel size if not a convolutional layer
-        if layer_type != "Covolution" and input_channel_num != output_channel:
+        if layer_type != "Convolution" and input_channel_num != output_channel:
+            print("Failed channel change on non Conv layer check")
             return False
     
     print("net passed: ")
@@ -612,6 +597,8 @@ class RandomSearchObj:
         #get all the valid params to randomly select from, dict of param types each with possibilities
         valid_params = GetValidLayerParams(previous_ouput_channels, input_size)
         
+        #input_size
+        chosen_layer_params["input_size"] = input_size
         #get input channels
         chosen_layer_params["input_channel_num"] = random.choice(valid_params["input_channel_num"])
         #decide on layer type (conv/pooling)
@@ -633,6 +620,7 @@ class RandomSearchObj:
         #update input size to next layer
         input_size = ((input_size - con_com[0]+2*con_com[1]) / con_com[2])+1
         chosen_layer_params["output_size"] = input_size
+        
         
         #log whats chosen
         print("layer " + str(layer_idx) + ": " + chosen_layer_params["layer_type"] + " : " + str(chosen_layer_params["input_channel_num"]) + " : " + str(chosen_layer_params["output_channel"]) + " kernel: " + str(chosen_layer_params["kernel_size"]) + " padd: " + str(chosen_layer_params["padding_size"]) + " stride: " + str(chosen_layer_params["stride_size"]) + " Output_size: " + str(chosen_layer_params["output_size"]))

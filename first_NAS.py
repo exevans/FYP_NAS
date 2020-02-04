@@ -296,7 +296,12 @@ class ReinforcementSearchObj:
     
         return layers_params
     
-    def SetReward(self, acc):
+    def SetReward(self, reward):
+        #add to our list of rewards
+        self.controller.rewards.append(reward)
+        #update the controller to make better changes in future
+        self.controller.learn(reward)
+        
         return 0
 
 class Agent(nn.Module):
@@ -358,7 +363,11 @@ class Controller:
         
         self.stateSpace = stateSpace
         self.agent = Agent(3, 3, 3*5)
+        self.rewards = []
         print("Agent:\n", self.agent)
+        
+        #set up the optimiser that will be adjusted as we get results
+        self.optimizer = optim.Adam(self.agent.parameters(), lr=1e-2)#optim.SGD(params=self.agent.parameters(), lr=lr,momentum=0.9)
         
     def policy_network(self, state, max_layers):
         #state is first input of the previous network
@@ -367,6 +376,7 @@ class Controller:
         #print("policy_network input state ", state)
         
         outputs = []
+        #reset the hidden layer
         hidden = self.agent.init_hidden()
         # we provide a flat list of chained input-output to the RNN
         #list of hyper params for each layer
@@ -383,10 +393,13 @@ class Controller:
             #print("pass input into rnn")
             #print("input dims = ", inState_var.shape)
             
+            #change shape
             inState_var = inState_var.view(1,1,-1)
             #print("input dims = ", inState_var.shape)
             
             output, hidden = self.agent(inState_var, hidden)
+            
+            #remove blank space
             output=output.squeeze()
             #print("output of the rnn", output, len(output))
             
@@ -428,6 +441,19 @@ class Controller:
         pred_actions = self.policy_network(state, max_layers)
 
         return pred_actions 
+    
+    def learn(self, reward):
+        print("Learn from the reward: ", reward)
+        
+        input = torch.tensor([[reward]])
+        expected = torch.tensor([[100]])
+        
+        #clear gradients
+        self.optimizer.zero_grad()
+        policy_loss = 100-reward#loss_func(input, expected)
+        policy_loss.backward()
+        #update the optimizer
+        self.optimizer.step()
 
 class Lambda(nn.Module):
     def __init__(self, func):
@@ -826,13 +852,17 @@ def PredictNetworkPerformance(net, opt):
     return (loss,acc)
 
 def loss_batch(model, loss_func, xb, yb, opt=None):
-    loss = loss_func(model(xb), yb)
-
+    
+    loss = 0
+    
     if opt is not None:
+        opt.zero_grad()
+        outputs = model(xb)
+        print("\nthe outputs of the model are:", outputs, "\n")
+        loss = loss_func(outputs, yb)
         loss.backward()
         opt.step()
-        opt.zero_grad()
-
+        
     return loss.item(), len(xb)
 
 def getModel(netLayers):

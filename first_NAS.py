@@ -401,19 +401,19 @@ class Controller:
             action_probs, hidden = self.agent(inState_var, hidden)
             
             #remove blank space
-            action_probs=action_probs.squeeze()#.detach().numpy()
-            #action_idx = np.random.choice([0,1,2], p=action_probs)
+            action_probs=action_probs.squeeze().detach().numpy()
+            action_idx = np.random.choice([0,1,2], p=action_probs)
             #print("output of the rnn", output, len(output))
             
             #Get the highest idx
             #output = output.index(torch.max(output.data))
             
-            out_max = max(action_probs)
-            for action_idx in range(len(action_probs)):
-               if action_probs[action_idx] == out_max:
+            #out_max = max(action_probs)
+            #for action_idx in range(len(action_probs)):
+             #  if action_probs[action_idx] == out_max:
                     #i is index of max value (state param to use)
-                   output = np.zeros((1, 3), dtype=np.float32)
-                   output[np.arange(1), action_idx] = action_idx + 1
+            output = np.zeros((1, 3), dtype=np.float32)
+            output[np.arange(1), action_idx] = action_idx + 1
             #        break
             #print(output)
             outputs += [output]

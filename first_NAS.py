@@ -221,7 +221,7 @@ class StateSpace:
             if val == 0:    #add in the "input_channel_num" as it isn't a state (depends on the output)
                 #print("FinishLayer: ", i, " ", self.state_count_-1)
                 layer_params["input_channel_num"] = previous_output_channels
-                
+                layer_params["input_size"] = input_size
                 #add output size so we can set up FC correctly for final layer
                 input_size = ((input_size - layer_params["kernel_size"]+2*layer_params["padding_size"]) / layer_params["stride_size"])+1
                 layer_params["output_size"] = input_size
@@ -230,7 +230,7 @@ class StateSpace:
                 layers_params.append(layer_params)
                 previous_output_channels = layer_params["output_channel"]
                 
-                print("layer " + str(layer_id) + ": " + layer_params["layer_type"] + " : " + str(layer_params["input_channel_num"]) + " : " + str(layer_params["output_channel"]) + " kernel: " + str(layer_params["kernel_size"]) + " padd: " + str(layer_params["padding_size"]) + " stride: " + str(layer_params["stride_size"]))
+                print("layer " + str(layer_id) + ": Input_size: " + str(layer_params["input_size"]) + " output__size: " + str(layer_params["output_size"]) + " : " + layer_params["layer_type"] + " : " + str(layer_params["input_channel_num"]) + " : " + str(layer_params["output_channel"]) + " kernel: " + str(layer_params["kernel_size"]) + " padd: " + str(layer_params["padding_size"]) + " stride: " + str(layer_params["stride_size"]))
                 # create a new layer_params for next
                 layer_params = dict() 
         
@@ -263,7 +263,7 @@ class ReinforcementSearchObj:
         #initial state to use to create others from (use a valid network)
         self.state = self.stateSpace.GenerateRandomLayerParams(max_layers, must_be_valid=True)
             
-        print("Found a valid initial net", self.state, "\n")
+        print("Found a valid initial net", self.stateSpace.decode(self.state), "\n")
         
     def SelectNextNetwork(self):
         print("Using reinforcement search")
@@ -300,7 +300,7 @@ class ReinforcementSearchObj:
         #add to our list of rewards
         self.controller.rewards.append(reward)
         #update the controller to make better changes in future
-        self.controller.learn(reward)
+        #self.controller.learn(reward)
         
         return 0
 
@@ -317,7 +317,7 @@ class Agent(nn.Module):
         #self.lstm = nn.LSTMCell(input_size=3, hidden_size=hidden_size)#, num_layers=1, batch_first=True)
         self.rnn = nn.RNN(input_size=3, hidden_size=3, batch_first=True)
         self.fc = nn.Linear(hidden_size, 3)
-        
+        self.softmax = nn.Softmax(dim=-1)
         self.hidden_size = hidden_size
         
         self.hidden = self.init_hidden()
@@ -334,8 +334,9 @@ class Agent(nn.Module):
         #self.h_t, self.c_t = self.lstm(input, (self.h_t, self.c_t))
         
         output, hidden = self.rnn(input, hidden)
+        
         #print("After lstm call:\n", self.h_t, " \n", self.c_t)
-         
+        output = self.softmax(output) 
         #output = self.fc(self.h_t)
 
         #output = h_t
@@ -397,22 +398,23 @@ class Controller:
             inState_var = inState_var.view(1,1,-1)
             #print("input dims = ", inState_var.shape)
             
-            output, hidden = self.agent(inState_var, hidden)
+            action_probs, hidden = self.agent(inState_var, hidden)
             
             #remove blank space
-            output=output.squeeze()
+            action_probs=action_probs.squeeze()#.detach().numpy()
+            #action_idx = np.random.choice([0,1,2], p=action_probs)
             #print("output of the rnn", output, len(output))
             
             #Get the highest idx
             #output = output.index(torch.max(output.data))
             
-            out_max = max(output)
-            for i in range(len(output)):
-                if output[i] == out_max:
+            out_max = max(action_probs)
+            for action_idx in range(len(action_probs)):
+               if action_probs[action_idx] == out_max:
                     #i is index of max value (state param to use)
-                    output = np.zeros((1, 3), dtype=np.float32)
-                    output[np.arange(1), i] = i + 1
-                    break
+                   output = np.zeros((1, 3), dtype=np.float32)
+                   output[np.arange(1), action_idx] = action_idx + 1
+            #        break
             #print(output)
             outputs += [output]
            
@@ -444,6 +446,18 @@ class Controller:
     
     def learn(self, reward):
         print("Learn from the reward: ", reward)
+        
+        R = 0
+        policy_loss = []
+        returns = []
+        #for all rewards
+        for r in policy.rewards[::-1]:
+            R = r + args.gamma * R
+            returns.insert(0, R)
+        returns = torch.tensor(returns)
+        returns = (returns - returns.mean()) / (returns.std() + eps)
+        for log_prob, R in zip(policy.saved_log_probs, returns):
+            policy_loss.append(-log_prob * R)
         
         input = torch.tensor([[reward]])
         expected = torch.tensor([[100]])
@@ -532,11 +546,11 @@ def GetValidLayerParams(previous_output_channels, input_size):
     return validParams
     
 def IsLayerParamsValid(layers_params):
-    for layer_id, layer_param in enumerate(layers_params):
+    '''for layer_id, layer_param in enumerate(layers_params):
         if (layer_id == 0) and (layer_param["layer_type"] != "Convolution"):
             return False
         
-        input_size = layer_param["output_size"]
+        input_size = layer_param["input_size"]
         kernel_size = layer_param["kernel_size"]
         padding_size = layer_param["padding_size"]
         stride_size = layer_param["stride_size"]
@@ -546,9 +560,28 @@ def IsLayerParamsValid(layers_params):
         elif padding_size >= (kernel_size/2):
             return False
         elif (((input_size - kernel_size+2*padding_size)/stride_size))+1 <=0:#output size must be > 0
+            return False'''
+        
+    for layer_id, layer_param in enumerate(layers_params):    
+        input_size = layer_param["input_size"]
+        input_channel_num = layer_param["input_channel_num"]
+        output_channel = layer_param["output_channel"]
+        layer_type = layer_param["layer_type"]
+        kernel_size = layer_param["kernel_size"]
+        padding_size = layer_param["padding_size"]
+        stride_size = layer_param["stride_size"]
+        
+        #check if it matches with valid params layer
+        validParams = GetValidLayerParams(input_channel_num, input_size)
+        if layer_param["input_channel_num"] not in validParams["input_channel_num"]:
             return False
-            
-        previous_output_channels = layer_param["output_channel"]
+        if layer_type not in validParams["layer_type"]:
+            return False
+        if (kernel_size, padding_size, stride_size) not in validParams["conv_comb"]:
+            return False
+        #can't change channel size if not a convolutional layer
+        if layer_type != "Covolution" and input_channel_num != output_channel:
+            return False
     
     print("net passed: ")
     
@@ -769,17 +802,17 @@ def BuildNetworkFromParameters(layer_params):
     return layers
     
 
-def DrawGraph(x_data,y_data,x_lim,y_lim):
+def DrawGraph(x_data,y_data,x_lim,y_lim, xLabel = "Number of iterations", yLabel = "Accuracy", title = "Accuracy vs Number of iteration"):
     plt.plot(x_data,y_data,color = "red")
-    plt.xlabel("Number of iterations")
-    plt.ylabel("Accuracy")
+    plt.xlabel(xLabel)
+    plt.ylabel(yLabel)
     plt.ylim(0, y_lim)
     plt.xlim(0, x_lim)
-    plt.title("Accuracy vs Number of iteration")
+    plt.title(title)
     plt.savefig('graph.png')
     plt.show()
 
-def FullyTrainAndTestNetwork(net, opt):
+def FullyTrainAndTestNetwork(net, opt, netId):
     #Begin Training
     low_fidelity_bool = PERFORMANCE_PREDICTOR == "Low_Fidelity"
     
@@ -791,20 +824,12 @@ def FullyTrainAndTestNetwork(net, opt):
     iteration_num = 1000
     if low_fidelity_bool:
         iteration_num = LOW_FIDELITY_ITERATIONS
-    DrawGraph(architecture_list["iteration_list"], architecture_list["accuracy_list"], iteration_num,100)
+ 
+    DrawGraph(architecture_list["iteration_list"], architecture_list["accuracy_list"], iteration_num,100, "Number of iterations", "Accuracy", "("+ str(netId) +") Accuracy Over Iterations")
     
     #reset the lists
     architecture_list["iteration_list"].clear()
     architecture_list["accuracy_list"].clear()
-
-    #test
-    test = 49998
-    pred = net(x_train[test].to(device))
-    #print(loss_func(pred, y_train[test]))
-    print("test predicted ans: " + str(torch.argmax(pred)))
-    
-    #pyplot.imshow(x_train[test].reshape((28, 28)), cmap="gray")     #display the image, shaped correctly
-    #test the network against the test set
 
     #calculate how well it performs on test set overall
     acc = CalculatePerformance(net)
@@ -830,7 +855,7 @@ def CalculatePerformance(net):
         
         return accuracy
 
-def PredictNetworkPerformance(net, opt):
+def PredictNetworkPerformance(net, opt, netId):
     print("Predict Performance")
     loss = 0
     acc = 0
@@ -844,7 +869,7 @@ def PredictNetworkPerformance(net, opt):
     
     #choose a method to predict the performance
     if PERFORMANCE_PREDICTOR == "Naive" or PERFORMANCE_PREDICTOR == "Low_Fidelity":
-        loss, acc = FullyTrainAndTestNetwork(net, opt)
+        loss, acc = FullyTrainAndTestNetwork(net, opt, netId)
         
     print('loss: ', loss, 'Acc: ', acc)
 
@@ -858,7 +883,7 @@ def loss_batch(model, loss_func, xb, yb, opt=None):
     if opt is not None:
         opt.zero_grad()
         outputs = model(xb)
-        print("\nthe outputs of the model are:", outputs, "\n")
+        #print("\nthe outputs of the model are:", outputs, "\n")
         loss = loss_func(outputs, yb)
         loss.backward()
         opt.step()
@@ -929,7 +954,7 @@ def main():
     #keep looping until satisfied
     best_net = 0 #keep track of best nets
     best_net_acc = 0
-    max_nets_to_test = 10
+    max_nets_to_test = 100
     net_values = list()
     net_results = list()
     
@@ -959,7 +984,7 @@ def main():
             print(net)
             
             #Predict how well this network will perform
-            loss, acc = PredictNetworkPerformance(net, opt)
+            loss, acc = PredictNetworkPerformance(net, opt, nets_tested)
             print("Finished prediction\n")
             
             #update the reinforce controller
@@ -981,6 +1006,9 @@ def main():
     print("\nAll Nets:")
     print(net_results)
     
+    #output a graph to show net accuracy produced over time
+    #for i, accuracy in enumerate(architecture_list["accuracy_list"]):
+    DrawGraph(list(range(0,len(net_results))), net_results, len(net_results),1, "Net ID", "Accuracy", "Net Performance over time")
 
     #clear gpu cache
     torch.cuda.empty_cache()

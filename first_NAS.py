@@ -25,6 +25,7 @@ import math #various math operations
 import torch.nn.functional as F #don't define our own loss functions
 from torch import nn #neural net stuff
 from torch import optim
+from torch.autograd import Variable
 
 from torch.utils.data import TensorDataset
 from torch.utils.data import DataLoader
@@ -278,7 +279,7 @@ class ReinforcementSearchObj:
         #print("Decode test = ", self.stateSpace.decode(self.state))
         
         #get the next action from the controller pass in previous net (state)
-        actions = self.controller.get_action(self.state)  # get an action for the previous state
+        actions = self.controller.select_action(self.state)  # get an action for the previous state
         
         print("Got the actions")
         print(actions)
@@ -300,7 +301,7 @@ class ReinforcementSearchObj:
         #add to our list of rewards
         self.controller.rewards.append(reward)
         #update the controller to make better changes in future
-        #self.controller.learn(reward)
+        self.controller.update_policy(reward)
         
         return 0
 
@@ -315,7 +316,7 @@ class Agent(nn.Module):
         self.softmax = nn.LogSoftmax(dim = 1) #softmax for classification'''
 
         #self.lstm = nn.LSTMCell(input_size=3, hidden_size=hidden_size)#, num_layers=1, batch_first=True)
-        self.rnn = nn.RNN(input_size=3, hidden_size=3, batch_first=True)
+        self.rnn = nn.RNN(input_size=input_size, hidden_size=hidden_size, batch_first=True)
         self.fc = nn.Linear(hidden_size, 3)
         self.softmax = nn.Softmax(dim=-1)
         self.hidden_size = hidden_size
@@ -368,7 +369,8 @@ class Controller:
         print("Agent:\n", self.agent)
         
         #set up the optimiser that will be adjusted as we get results
-        self.optimizer = optim.Adam(self.agent.parameters(), lr=1e-2)#optim.SGD(params=self.agent.parameters(), lr=lr,momentum=0.9)
+        self.optimizer = optim.Adam(self.agent.parameters(), lr=0.01)#optim.SGD(params=self.agent.parameters(), lr=lr,momentum=0.9)
+        self.policy_history = Variable(torch.Tensor()) 
         
     def policy_network(self, state, max_layers):
         #state is first input of the previous network
@@ -376,7 +378,7 @@ class Controller:
         
         #print("policy_network input state ", state)
         
-        outputs = []
+        actions = []
         #reset the hidden layer
         hidden = self.agent.init_hidden()
         # we provide a flat list of chained input-output to the RNN
@@ -405,27 +407,35 @@ class Controller:
             action_idx = np.random.choice([0,1,2], p=action_probs)
             #print("output of the rnn", output, len(output))
             
-            #Get the highest idx
-            #output = output.index(torch.max(output.data))
+            action = np.zeros((1, 3), dtype=np.float32)
+            action[np.arange(1), action_idx] = action_idx + 1
             
-            #out_max = max(action_probs)
-            #for action_idx in range(len(action_probs)):
-             #  if action_probs[action_idx] == out_max:
-                    #i is index of max value (state param to use)
-            output = np.zeros((1, 3), dtype=np.float32)
-            output[np.arange(1), action_idx] = action_idx + 1
-            #        break
+            # Add log probability of our chosen action to our history    
+            action_prob = torch.tensor(action_probs[action_idx])
+            
+            print("action probs: ", action_probs)
+            c = Categorical(torch.tensor(action_probs))
+            actionCat = c.sample()
+            print("Using categorical: m ", c, " action: ", actionCat, "log prob: ",c.log_prob(actionCat), ": dims: ",self.policy_history.dim(), " other dims: ", c.log_prob(actionCat).dim())
+            print("action_prob: ", action_prob)
+            
+            if self.policy_history.dim() != 0:
+                self.policy_history = torch.cat([self.policy_history, torch.tensor(c.log_prob(actionCat))])
+                #self.policy_history = (c.log_prob(actionCat))
+            else:
+                self.policy_history = (c.log_prob(actionCat))
+            
             #print(output)
-            outputs += [output]
+            actions += [action]
            
         #outputs = torch.stack(outputs).squeeze(1)
         #print("policy actions produced:\n", outputs)
         #action_index = Categorical(logits=outputs).sample().unsqueeze(1)
         #print("action_index: ", action_index)
         
-        return outputs
+        return actions
 
-    def get_action(self, state):
+    def select_action(self, state):
         print("get action from controller to return the new architecture")
         #initial_state = self.stateSpace[0]
         #size = initial_state['size']
@@ -444,30 +454,30 @@ class Controller:
 
         return pred_actions 
     
-    def learn(self, reward):
+    def update_policy(self, reward):
         print("Learn from the reward: ", reward)
         
         R = 0
         policy_loss = []
         returns = []
         #for all rewards
-        for r in policy.rewards[::-1]:
-            R = r + args.gamma * R
-            returns.insert(0, R)
-        returns = torch.tensor(returns)
-        returns = (returns - returns.mean()) / (returns.std() + eps)
-        for log_prob, R in zip(policy.saved_log_probs, returns):
-            policy_loss.append(-log_prob * R)
-        
-        input = torch.tensor([[reward]])
-        expected = torch.tensor([[100]])
+        #for r in policy.rewards[::-1]:
+         #   R = r + args.gamma * R
+          #  returns.insert(0, R)
+        #returns = torch.tensor(returns)
+        #returns = (returns - returns.mean()) / (returns.std() + eps)
+         # Calculate loss
+        loss = (torch.sum(torch.mul(self.policy_history, Variable(reward)).mul(-1), -1))
         
         #clear gradients
-        self.optimizer.zero_grad()
-        policy_loss = 100-reward#loss_func(input, expected)
-        policy_loss.backward()
+        self.optimizer.zero_grad()  #clear all stored gradients
+        #policy_loss = 100-reward#loss_func(input, expected)
+        loss.backward()
         #update the optimizer
-        self.optimizer.step()
+        self.optimizer.step()   #update the rnn parameters based on the gradient
+        
+        #clear the policy history
+        self.policy_history = Variable(torch.Tensor())
 
 class Lambda(nn.Module):
     def __init__(self, func):

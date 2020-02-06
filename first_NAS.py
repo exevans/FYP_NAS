@@ -31,6 +31,8 @@ from torch.utils.data import TensorDataset
 from torch.utils.data import DataLoader
 
 import pdb #debugging
+import datetime #so we can name dumpfile
+import re #regex to format filenames
 
 
 use_cuda = torch.cuda.is_available()
@@ -61,6 +63,17 @@ n, c = x_train.shape
 print('train shape ',x_train.shape)
 print('test shape ',x_valid.shape)
 print('y_min: ',y_train.min(), 'y_max: ',y_train.max())
+
+#use the time to create a filename
+time = str(datetime.datetime.now())
+time = re.sub("[\s\.:-]",'_',time)
+DumpFileName = "NetDump" + time + ".txt"
+
+DUMP_PATH = Path("net_dumps")
+DUMP_PATH.mkdir(parents=True, exist_ok=True)
+#make the path if it doesn't exist
+dumpFile = open((DUMP_PATH / DumpFileName).as_posix(), "w")
+dumpFile.write("Successful nets:\n")
 
 bs = 100  # batch size
 loss_func = F.cross_entropy
@@ -281,8 +294,8 @@ class ReinforcementSearchObj:
         #get the next action from the controller pass in previous net (state)
         actions = self.controller.select_action(self.state)  # get an action for the previous state
         
-        print("Got the actions")
-        print(actions)
+        #print("Got the actions")
+        #print(actions)
         
         #state is now set to first action
         self.state = actions
@@ -388,7 +401,7 @@ class Controller:
             state_id = i % self.stateSpace.state_count_
             #get the state for the current i
             state_space = self.stateSpace[i]
-            size = state_space['size']
+            #size = state_space['size']
             
             
             inState_var = torch.from_numpy(state[i])#.flatten())
@@ -400,38 +413,37 @@ class Controller:
             inState_var = inState_var.view(1,1,-1)
             #print("input dims = ", inState_var.shape)
             
-            action_probs, hidden = self.agent(inState_var, hidden)
+            action_probs, hidden = self.agent(torch.FloatTensor(inState_var), hidden)
             
             #remove blank space
-            action_probs=action_probs.squeeze().detach().numpy()
-            action_idx = np.random.choice([0,1,2], p=action_probs)
+            #action_probs2=action_probs.squeeze().detach().numpy()
+            #action_idx = np.random.choice([0,1,2], p=action_probs2)
             #print("output of the rnn", output, len(output))
             
-            action = np.zeros((1, 3), dtype=np.float32)
-            action[np.arange(1), action_idx] = action_idx + 1
-            
             # Add log probability of our chosen action to our history    
-            action_prob = torch.tensor(action_probs[action_idx])
+            #action_prob = torch.tensor(action_probs[action_idx])
             
-            print("action probs: ", action_probs)
-            c = Categorical(torch.tensor(action_probs))
-            actionCat = c.sample()
-            print("Using categorical: m ", c, " action: ", actionCat, "log prob: ",c.log_prob(actionCat), ": dims: ",self.policy_history.dim(), " other dims: ", c.log_prob(actionCat).dim())
-            print("action_prob: ", action_prob)
+            #print("action probs: ", action_probs)
+            c = Categorical(action_probs)
+            action = c.sample()
+            action_idx = action.squeeze()
+            #print("Using categorical: m ", c, " action: ", action, "action val: ", action_idx, "log prob: ",c.log_prob(action), ": dims: ",self.policy_history.dim(), " other dims: ", c.log_prob(action).dim())
+            #print("action_prob: ", action_prob)
             
-            if self.policy_history.dim() != 0:
-                self.policy_history = torch.cat([self.policy_history, torch.tensor(c.log_prob(actionCat))])
+            
+            
+            actionVal = np.zeros((1, 3), dtype=np.float32)
+            actionVal[np.arange(1), action_idx] = action_idx + 1
+            
+            #if self.policy_history.dim() != 0:
+             #   self.policy_history = torch.cat([self.policy_history, torch.tensor(c.log_prob(actionCat))])
                 #self.policy_history = (c.log_prob(actionCat))
-            else:
-                self.policy_history = (c.log_prob(actionCat))
+            #else:
+            self.policy_history = c.log_prob(action)
+            #self.policy_history.backward()
             
             #print(output)
-            actions += [action]
-           
-        #outputs = torch.stack(outputs).squeeze(1)
-        #print("policy actions produced:\n", outputs)
-        #action_index = Categorical(logits=outputs).sample().unsqueeze(1)
-        #print("action_index: ", action_index)
+            actions.append(actionVal)
         
         return actions
 
@@ -457,21 +469,22 @@ class Controller:
     def update_policy(self, reward):
         print("Learn from the reward: ", reward)
         
-        R = 0
-        policy_loss = []
-        returns = []
+        #R = 0
+        #policy_loss = []
+        #returns = []
         #for all rewards
         #for r in policy.rewards[::-1]:
          #   R = r + args.gamma * R
           #  returns.insert(0, R)
         #returns = torch.tensor(returns)
         #returns = (returns - returns.mean()) / (returns.std() + eps)
-         # Calculate loss
-        loss = (torch.sum(torch.mul(self.policy_history, Variable(reward)).mul(-1), -1))
+        # Calculate loss
+        #loss = (torch.sum(torch.mul(self.policy_history, Variable(reward)).mul(-1), -1))
         
         #clear gradients
         self.optimizer.zero_grad()  #clear all stored gradients
-        #policy_loss = 100-reward#loss_func(input, expected)
+        #calculate loss
+        loss = -self.policy_history * reward
         loss.backward()
         #update the optimizer
         self.optimizer.step()   #update the rnn parameters based on the gradient
@@ -950,25 +963,26 @@ def main():
     
     
     #keep looping until satisfied
-    best_net = 0 #keep track of best nets
+    valid_nets = 0  #keep track of how many produced nets are actually valid (reinforcement learning)
+    best_net = 0    #keep track of best nets
     best_net_acc = 0
-    max_nets_to_test = 100
+    max_nets_to_test = 9999999999
+    valid_nets_to_test = 10
     net_values = list()
     net_results = list()
     
     
     for nets_tested in range(max_nets_to_test):
         
-        #get the result of the previos net
-        
         #Select the parameters for the network to test we want
         layer_params = SearchObj.SelectNextNetwork()
         
+        #layer_params is false if found net is invalid
         if layer_params == False:
             print("Net is Invalid\n")
              #update the reinforce controller
             if SEARCH_STRAT == "RL_Search":
-                SearchObj.SetReward(0)
+                SearchObj.SetReward(-100)
         else:
             #build the layers
             layers = BuildNetworkFromParameters(layer_params)
@@ -978,7 +992,7 @@ def main():
             #writer.add_graph(net, images)
             #writer.close()
             
-            print("\nmade the selected net")
+            print("\nmade the selected net ID: ", valid_nets)
             print(net)
             
             #Predict how well this network will perform
@@ -993,10 +1007,22 @@ def main():
             net_values.append(net)
             net_results.append(acc)
             
+            #print to logs
+            dumpFile.write(str(valid_nets))
+            dumpFile.write(str(net))
+            dumpFile.write(str(acc))
+            
             #keep track of best net
             if acc > best_net_acc:
                 best_net_acc = acc
                 best_net = net
+                
+            #increment number of valid nets found
+            valid_nets += 1
+            
+            #if we have seen enough valid nets then stop
+            if (valid_nets == valid_nets_to_test):
+                break
     
     print("Best found net")
     print(best_net)
@@ -1010,6 +1036,9 @@ def main():
 
     #clear gpu cache
     torch.cuda.empty_cache()
+    
+    #close our logging file
+    dumpFile.close()
     
 if __name__ == "__main__":
     main()

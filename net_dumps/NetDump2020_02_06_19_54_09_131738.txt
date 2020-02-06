@@ -1,0 +1,63 @@
+Successful nets:
+Search strategy: Random_Search
+Performance Predictor: Low_Fidelity
+0
+Sequential(
+  (preprocess): Lambda()
+  (Cons0): Conv2d(1, 24, kernel_size=(3, 3), stride=(1, 1))
+  (ReLu0): ReLU()
+  (Cons1): Conv2d(24, 36, kernel_size=(5, 5), stride=(3, 3))
+  (ReLu1): ReLU()
+  (Cons2): Conv2d(36, 16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (ReLu2): ReLU()
+  (postprocess): Lambda()
+  (FC): Linear(in_features=1024, out_features=10, bias=True)
+)
+tensor(0.1090)
+1
+Sequential(
+  (preprocess): Lambda()
+  (Cons0): Conv2d(1, 36, kernel_size=(1, 1), stride=(3, 3))
+  (ReLu0): ReLU()
+  (Cons1): Conv2d(36, 16, kernel_size=(3, 3), stride=(1, 1))
+  (ReLu1): ReLU()
+  (Max_Pool2): MaxPool2d(kernel_size=5, stride=3, padding=0, dilation=1, ceil_mode=False)
+  (postprocess): Lambda()
+  (FC): Linear(in_features=64, out_features=10, bias=True)
+)
+tensor(0.3841)
+2
+Sequential(
+  (preprocess): Lambda()
+  (Cons0): Conv2d(1, 36, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (ReLu0): ReLU()
+  (Max_Pool1): MaxPool2d(kernel_size=5, stride=1, padding=0, dilation=1, ceil_mode=False)
+  (Cons2): Conv2d(36, 36, kernel_size=(5, 5), stride=(1, 1), padding=(1, 1))
+  (ReLu2): ReLU()
+  (postprocess): Lambda()
+  (FC): Linear(in_features=17424, out_features=10, bias=True)
+)
+tensor(0.1090)
+3
+Sequential(
+  (preprocess): Lambda()
+  (Cons0): Conv2d(1, 16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (ReLu0): ReLU()
+  (Cons1): Conv2d(16, 36, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (ReLu1): ReLU()
+  (Max_Pool2): MaxPool2d(kernel_size=1, stride=1, padding=0, dilation=1, ceil_mode=False)
+  (postprocess): Lambda()
+  (FC): Linear(in_features=28224, out_features=10, bias=True)
+)
+tensor(0.9008)
+4
+Sequential(
+  (preprocess): Lambda()
+  (Cons0): Conv2d(1, 24, kernel_size=(5, 5), stride=(1, 1))
+  (ReLu0): ReLU()
+  (Avg_Pool1): AvgPool2d(kernel_size=1, stride=1, padding=0)
+  (Max_Pool2): MaxPool2d(kernel_size=5, stride=3, padding=1, dilation=1, ceil_mode=False)
+  (postprocess): Lambda()
+  (FC): Linear(in_features=1536, out_features=10, bias=True)
+)
+tensor(0.9356)

@@ -102,9 +102,9 @@ INPUT_IMAGE_SIZE = 28
 #Grid_Search
 #SEARCH_STRAT = "Grid_Search"
 #Random_Search
-#SEARCH_STRAT = "Random_Search"
+SEARCH_STRAT = "Random_Search"
 #Reinforcement
-SEARCH_STRAT = "RL_Search"
+#SEARCH_STRAT = "RL_Search"
 #Naive
 #PERFORMANCE_PREDICTOR = "Naive"
 #low fidelity
@@ -390,6 +390,7 @@ class Controller:
         #other are fed in internally
         
         #print("policy_network input state ", state)
+        currentState = state[0]
         
         actions = []
         #reset the hidden layer
@@ -398,13 +399,13 @@ class Controller:
         #list of hyper params for each layer
         for i in range(self.stateSpace.state_count_ * max_layers):
             #get the state id independent of layer
-            state_id = i % self.stateSpace.state_count_
+            #state_id = i % self.stateSpace.state_count_
             #get the state for the current i
-            state_space = self.stateSpace[i]
+            #state_space = self.stateSpace[i]
             #size = state_space['size']
             
-            
-            inState_var = torch.from_numpy(state[i])#.flatten())
+            #print("state i: ", currentState)
+            inState_var = torch.from_numpy(currentState)#state[i])#.flatten())
             #print("input to the rnn", inState_var)
             #print("pass input into rnn")
             #print("input dims = ", inState_var.shape)
@@ -441,6 +442,9 @@ class Controller:
             #else:
             self.policy_history = c.log_prob(action)
             #self.policy_history.backward()
+            
+            #use retireved action as the input to find the next action
+            currentState = actionVal
             
             #print(output)
             actions.append(actionVal)
@@ -753,21 +757,6 @@ class GridSearchObj:
     
         return chosen_layer_params, previous_ouput_channels, input_size
 
-'''def GradientBasedSearch(iteration):
-    layers_params = list()
-    
-    if iteration==0: #take an initial random point
-        current_ouput_channels = 1
-        input_size = 28
-     
-        for i in range(max_layers):
-            layer_params, current_ouput_channels, input_size = GenerateLayer(i, current_ouput_channels, input_size)
-            layers_params.append(layer_params)
-
-    
-    
-    return layers_params'''
-
 #from the chosen params for each layer actaully build layers of the network
 def BuildNetworkFromParameters(layer_params):
     
@@ -813,13 +802,23 @@ def BuildNetworkFromParameters(layer_params):
     return layers
     
 
-def DrawGraph(x_data,y_data,x_lim,y_lim, xLabel = "Number of iterations", yLabel = "Accuracy", title = "Accuracy vs Number of iteration"):
-    plt.plot(x_data,y_data,color = "red")
+def DrawGraph(scatter, x_data,y_data,x_lim,y_lim, xLabel = "Number of iterations", yLabel = "Accuracy", title = "Accuracy vs Number of iteration"): 
+    if scatter:
+        #ensure is not a tensor or we get a crash
+        y_data = list(map(float, y_data)) 
+        
+        colors = (0,0,0)
+        area = np.pi*3
+        plt.scatter(x_data, y_data, s=area, c=colors, alpha=0.5)
+    else:
+        plt.plot(x_data,y_data,color = "red")
+        
+    #general methods
+    plt.title(title)
     plt.xlabel(xLabel)
     plt.ylabel(yLabel)
     plt.ylim(0, y_lim)
     plt.xlim(0, x_lim)
-    plt.title(title)
     plt.savefig('graph.png')
     plt.show()
 
@@ -836,7 +835,7 @@ def FullyTrainAndTestNetwork(net, opt, netId):
     if low_fidelity_bool:
         iteration_num = LOW_FIDELITY_ITERATIONS
  
-    DrawGraph(architecture_list["iteration_list"], architecture_list["accuracy_list"], iteration_num,100, "Number of iterations", "Accuracy", "("+ str(netId) +") Accuracy Over Iterations")
+    DrawGraph(False, architecture_list["iteration_list"], architecture_list["accuracy_list"], iteration_num,100, "Number of iterations", "Accuracy", "("+ str(netId) +") Accuracy Over Iterations")
     
     #reset the lists
     architecture_list["iteration_list"].clear()
@@ -853,7 +852,6 @@ def CalculatePerformance(net):
     total = 0
     with torch.no_grad():
         for xb2,yb2 in valid_dl:
-            #images = Variable(images.view(-1, seq_dim, input_dim))
             # Forward propagation
             outputs = net(xb2.to(device))
             # Get predictions from the maximum value
@@ -951,6 +949,11 @@ def main():
         print(torch.cuda.memory_allocated())
         print(torch.cuda.memory_cached())
     
+    #do the initial file logging
+    dumpFile.write("Search strategy: " + str(SEARCH_STRAT) + "\n")
+    dumpFile.write("Performance Predictor: " + str(PERFORMANCE_PREDICTOR) + "\n")
+    
+    #search obj will be defined based on search method selected
     SearchObj = 0
     
     #init the right search type
@@ -966,8 +969,8 @@ def main():
     valid_nets = 0  #keep track of how many produced nets are actually valid (reinforcement learning)
     best_net = 0    #keep track of best nets
     best_net_acc = 0
-    max_nets_to_test = 9999999999
-    valid_nets_to_test = 10
+    max_nets_to_test = 9999999999   #the maximum possible number of nets to explore (including invalid ones)
+    valid_nets_to_test = 5
     net_values = list()
     net_results = list()
     
@@ -989,8 +992,6 @@ def main():
             #build the final net
             net, opt = getModel(layers)
             net.to(device)
-            #writer.add_graph(net, images)
-            #writer.close()
             
             print("\nmade the selected net ID: ", valid_nets)
             print(net)
@@ -1008,9 +1009,9 @@ def main():
             net_results.append(acc)
             
             #print to logs
-            dumpFile.write(str(valid_nets))
-            dumpFile.write(str(net))
-            dumpFile.write(str(acc))
+            dumpFile.write(str(valid_nets) + "\n")
+            dumpFile.write(str(net) + "\n")
+            dumpFile.write(str(acc) + "\n")
             
             #keep track of best net
             if acc > best_net_acc:
@@ -1021,7 +1022,7 @@ def main():
             valid_nets += 1
             
             #if we have seen enough valid nets then stop
-            if (valid_nets == valid_nets_to_test):
+            if (valid_nets >= valid_nets_to_test):
                 break
     
     print("Best found net")
@@ -1032,7 +1033,7 @@ def main():
     
     #output a graph to show net accuracy produced over time
     #for i, accuracy in enumerate(architecture_list["accuracy_list"]):
-    DrawGraph(list(range(0,len(net_results))), net_results, len(net_results),1, "Net ID", "Accuracy", "Net Performance over time")
+    DrawGraph(True, list(range(0,len(net_results))), net_results, len(net_results),1, "Net ID", "Accuracy", "Net Performance over time")
 
     #clear gpu cache
     torch.cuda.empty_cache()

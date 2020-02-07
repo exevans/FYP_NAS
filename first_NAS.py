@@ -46,7 +46,7 @@ class Cifar10_DataSet:
         self.colour_channel_num = 3
         self.image_size = 32
         self.batch_size = 100
-        self.low_fidelity_iterations = 2000
+        self.low_fidelity_iterations = 200
         self.classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
         
     def GetDataSets(self): 
@@ -151,15 +151,15 @@ INPUT_IMAGE_SIZE = dataset.image_size
 #Grid_Search
 #SEARCH_STRAT = "Grid_Search"
 #Random_Search
-SEARCH_STRAT = "Random_Search"
+#SEARCH_STRAT = "Random_Search"
 #Reinforcement
-#SEARCH_STRAT = "RL_Search"
+SEARCH_STRAT = "RL_Search"
 #Naive
-PERFORMANCE_PREDICTOR = "Naive"
+#PERFORMANCE_PREDICTOR = "Naive"
 #low fidelity
-#PERFORMANCE_PREDICTOR = "Low_Fidelity"
+PERFORMANCE_PREDICTOR = "Low_Fidelity"
 
-LOW_FIDELITY_ITERATIONS = 50
+LOW_FIDELITY_ITERATIONS = dataset.low_fidelity_iterations
 
 #define hyper-parameter ranges
 layer_types = ["Convolution", "Pooling_Max", "Pooling_Avg"]
@@ -1032,7 +1032,7 @@ def main():
     best_net = 0    #keep track of best nets
     best_net_acc = 0
     max_nets_to_test = 9999999999   #the maximum possible number of nets to explore (including invalid ones)
-    valid_nets_to_test = 5
+    valid_nets_to_test = 20
     net_values = list()
     net_results = list()
     

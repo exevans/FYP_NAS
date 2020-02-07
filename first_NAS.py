@@ -17,6 +17,7 @@ import numpy as np #use numpy
 
 import torch
 import torchvision
+import torchvision.transforms as transforms
 from torch.distributions import Categorical
 import random
 from random import randrange
@@ -28,64 +29,70 @@ from torch import optim
 from torch.autograd import Variable
 
 from torch.utils.data import TensorDataset
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader #easily iterate through dataset
 
 import pdb #debugging
 import datetime #so we can name dumpfile
 import re #regex to format filenames
 
-
+#if we can use gpu, set it as the device
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 
-DATA_PATH = Path("data")
-PATH = DATA_PATH / "mnist"
 
-PATH.mkdir(parents=True, exist_ok=True)
-
-URL = "http://deeplearning.net/data/mnist/"
-FILENAME = "mnist.pkl.gz"
-
-if not (PATH / FILENAME).exists():  #don't download if already exists
-        content = requests.get(URL + FILENAME).content #get content at the url
-        (PATH / FILENAME).open("wb").write(content)  #write the data locally
+class Cifar10_DataSet:
+    def __init__(self):
+        self.name = "CIFAR_10"
+        self.colour_channel_num = 3
+        self.image_size = 32
+        self.batch_size = 100
+        self.low_fidelity_iterations = 2000
+        self.classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
         
-#deserialize 
-with gzip.open((PATH / FILENAME).as_posix(), "rb") as f:
-        ((x_train, y_train), (x_valid, y_valid), _) = pickle.load(f, encoding="latin-1")    #deserialize the data
+    def GetDataSets(self): 
+        transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+        
+        trainset = torchvision.datasets.CIFAR10(root="./" + str(PATH), train=True,
+                                        download=True, transform=transform)
+        testset = torchvision.datasets.CIFAR10(root="./" + str(PATH), train=False,
+                                       download=True, transform=transform)
+        
+        return trainset, testset
+    
+class Mnist_DataSet:
+    def __init__(self):
+        self.name = "mnist"
+        self.colour_channel_num = 1
+        self.image_size = 28
+        self.batch_size = 64
+        self.low_fidelity_iterations = 50
+        self.classes = ('0', '1', '2', '3', '4', '5', '6', '7', '8', '9')
+        
+    def GetDataSets(self):
+        transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+        
+        trainset = torchvision.datasets.MNIST(root="./" + str(PATH), train=True,
+                                        download=True, transform=transforms.ToTensor())
+        testset = torchvision.datasets.MNIST(root="./" + str(PATH), train=False,
+                                       download=True, transform=transforms.ToTensor())
+        
+        return trainset, testset
 
-#convert to tensor, numpy arrays are mapped to tensors
-x_train, y_train, x_valid, y_valid = map(
-    torch.tensor, (x_train, y_train, x_valid, y_valid)
-)
-n, c = x_train.shape
-#print('train data X ',x_train, '\ntrain data Y ', y_train)
-print('train shape ',x_train.shape)
-print('test shape ',x_valid.shape)
-print('y_min: ',y_train.min(), 'y_max: ',y_train.max())
+#mnist
+#dataset = Mnist_DataSet()
+#CIFAR10
+dataset = Cifar10_DataSet()
 
-#use the time to create a filename
-time = str(datetime.datetime.now())
-time = re.sub("[\s\.:-]",'_',time)
-DumpFileName = "NetDump" + time + ".txt"
 
-DUMP_PATH = Path("net_dumps")
-DUMP_PATH.mkdir(parents=True, exist_ok=True)
-#make the path if it doesn't exist
-dumpFile = open((DUMP_PATH / DumpFileName).as_posix(), "w")
-dumpFile.write("Successful nets:\n")
+bs = dataset.batch_size  # batch size
+#mnist or CIFAR_10
+DATASET_NAME = dataset.name
 
-bs = 100  # batch size
-loss_func = F.cross_entropy
-lr = 0.1
-epochs = 2
-max_layers = 3
+DATA_PATH = Path("data")
+PATH = DATA_PATH / DATASET_NAME
 
-# create the training set
-train_ds = TensorDataset(x_train, y_train)
-
-#for validating our results
-valid_ds = TensorDataset(x_valid, y_valid)
+#create the needed directory
+PATH.mkdir(parents=True, exist_ok=True)
 
 
 def get_data(train_ds, valid_ds, bs):    
@@ -93,11 +100,53 @@ def get_data(train_ds, valid_ds, bs):
         DataLoader(train_ds, batch_size=bs, shuffle=True),
         DataLoader(valid_ds, batch_size=bs * 2),
     )
-    
+
+#retrieve the actual training and testing dataloaders from the datasets
+train_ds, valid_ds = dataset.GetDataSets()
 train_dl, valid_dl = get_data(train_ds, valid_ds, bs)
 
-COLOUR_CHANNEL_NUM = 1
-INPUT_IMAGE_SIZE = 28
+
+def imshow(img):
+    img = img / 2 + 0.5     # unnormalize
+    npimg = img.numpy()
+    plt.imshow(np.transpose(npimg, (1, 2, 0)))
+    plt.show()
+
+example_images_to_show = 4
+# get random training images to look at
+dataiter = iter(train_dl)
+images, labels = dataiter.next()
+# show the images
+imshow(torchvision.utils.make_grid(images[:example_images_to_show]))
+# print labels (only first 4)
+print(' '.join('%5s' % dataset.classes[labels[j]] for j in range(example_images_to_show)))
+
+
+def createDumpFile():
+    #use time but remove illegal characters
+    time = str(datetime.datetime.now())
+    time = re.sub("[\s\.:-]",'_',time)
+    DumpFileName = "NetDump" + time + ".txt"
+    
+    DUMP_PATH = Path("net_dumps")
+    DUMP_PATH.mkdir(parents=True, exist_ok=True)
+    #make the path if it doesn't exist
+    dumpFile = open((DUMP_PATH / DumpFileName).as_posix(), "w")
+    dumpFile.write("Successful nets:\n")
+    
+    return dumpFile
+
+#create a dumpfile
+dumpFile = createDumpFile()
+
+loss_func = F.cross_entropy
+lr = 0.1
+epochs = 2
+max_layers = 3
+
+
+COLOUR_CHANNEL_NUM = dataset.colour_channel_num
+INPUT_IMAGE_SIZE = dataset.image_size
 
 #Grid_Search
 #SEARCH_STRAT = "Grid_Search"
@@ -106,9 +155,9 @@ SEARCH_STRAT = "Random_Search"
 #Reinforcement
 #SEARCH_STRAT = "RL_Search"
 #Naive
-#PERFORMANCE_PREDICTOR = "Naive"
+PERFORMANCE_PREDICTOR = "Naive"
 #low fidelity
-PERFORMANCE_PREDICTOR = "Low_Fidelity"
+#PERFORMANCE_PREDICTOR = "Low_Fidelity"
 
 LOW_FIDELITY_ITERATIONS = 50
 
@@ -505,7 +554,7 @@ class Lambda(nn.Module):
         return self.func(x)
 
 def preprocess(x):
-    return x.view(-1, 1, INPUT_IMAGE_SIZE, INPUT_IMAGE_SIZE)
+    return x.view(-1, COLOUR_CHANNEL_NUM, INPUT_IMAGE_SIZE, INPUT_IMAGE_SIZE)
 
 #def getOp():
   #  op = random.sample(operations,1)
@@ -525,7 +574,7 @@ def GetValidLayerParams(previous_output_channels, input_size):
     validParams["input_channel_num"] = [previous_output_channels]
     
     #layer types either convolutional or pooling
-    if previous_output_channels == 1:
+    if previous_output_channels == COLOUR_CHANNEL_NUM:
         validParams["layer_type"] = ["Convolution"]
     else:
         validParams["layer_type"] = layer_types
@@ -856,10 +905,14 @@ def CalculatePerformance(net):
             outputs = net(xb2.to(device))
             # Get predictions from the maximum value
             predicted = torch.max(outputs.data, 1)[1]
+            #print("pred outputs: ", outputs.data)
+            #print("predicted: ",predicted)
+            #print("Ground: ", yb2)
             # Total number of labels
             total += yb2.size(0)
             correct += (predicted == yb2.to(device)).sum()
         
+        print("Correct = ", correct, " / ", float(total))
         accuracy = correct / float(total)
         
         return accuracy
@@ -893,11 +946,14 @@ def loss_batch(model, loss_func, xb, yb, opt=None):
         opt.zero_grad()
         outputs = model(xb)
         #print("\nthe outputs of the model are:", outputs, "\n")
+        #print("expected are ", yb)
         loss = loss_func(outputs, yb)
         loss.backward()
         opt.step()
         
-    return loss.item(), len(xb)
+        
+        
+    return loss.item()
 
 def getModel(netLayers):
     net = nn.Sequential()
@@ -905,34 +961,40 @@ def getModel(netLayers):
 
     #add all layers
     for layer in netLayers:
-         net.add_module(layer[0],layer[1])
+        net.add_module(layer[0],layer[1])        
         
     params = list(net.parameters())
     
     return net, optim.SGD(params=params, lr=lr,momentum=0.9)
 
 def fit(epochs, net, loss_func, opt, train_dl, valid_dl, low_fidelity):
-    
+    print("fit")
     iteration_count = 0 #used when storing data
     
     #actual training
     for epoch in range(epochs):
+        
+        running_loss = 0.0
         net.train() #start training
         for xb,yb in train_dl:
-            loss_batch(net, loss_func,xb.to(device),yb.to(device),opt)
+            loss = loss_batch(net, loss_func,xb.to(device),yb.to(device),opt)
             
+            running_loss += loss
             
-            #about to check against validation goes up to aroumd 750
+            #about to check against validation goes up to aroumd 750 for mnist
             iteration_count += 1
             plot_performance = True
             if (iteration_count < 100 and (iteration_count%10==0)) or (iteration_count % 50)==0:# and i < 300:
                 if plot_performance:
                     accuracy = CalculatePerformance(net)
                     
-                    print("Iteration " + str(iteration_count) + " acc= " + str(accuracy*100))
+                    print("Iteration " + str(iteration_count) + " acc= " + str(float(accuracy)*100) + " loss=" + str(running_loss))
                     #store the iteratioon performance 
                     architecture_list["iteration_list"].append(iteration_count)
                     architecture_list["accuracy_list"].append(accuracy*100)
+                    
+                    #reset the running loss
+                    running_loss = 0.0
                 else:
                      print("Iteration " + str(iteration_count))
                      
@@ -1033,7 +1095,7 @@ def main():
     
     #output a graph to show net accuracy produced over time
     #for i, accuracy in enumerate(architecture_list["accuracy_list"]):
-    DrawGraph(True, list(range(0,len(net_results))), net_results, len(net_results),1, "Net ID", "Accuracy", "Net Performance over time")
+    DrawGraph(True, list(range(0,len(net_results))), net_results, len(net_results),1, "Net ID", "Accuracy", "Nets Produced over time")
 
     #clear gpu cache
     torch.cuda.empty_cache()

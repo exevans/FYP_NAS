@@ -112,15 +112,16 @@ def imshow(img):
     plt.imshow(np.transpose(npimg, (1, 2, 0)))
     plt.show()
 
-example_images_to_show = 4
-# get random training images to look at
-dataiter = iter(train_dl)
-images, labels = dataiter.next()
-# show the images
-imshow(torchvision.utils.make_grid(images[:example_images_to_show]))
-# print labels (only first 4)
-print(' '.join('%5s' % dataset.classes[labels[j]] for j in range(example_images_to_show)))
-
+def showDataSample(images_to_show_num):
+    # get random training images to look at
+    dataiter = iter(train_dl)
+    images, labels = dataiter.next()
+    # show the images
+    imshow(torchvision.utils.make_grid(images[:images_to_show_num]))
+    # print labels (only first 4)
+    print(' '.join('%5s' % dataset.classes[labels[j]] for j in range(images_to_show_num)))
+ 
+showDataSample(4)
 
 def createDumpFile():
     #use time but remove illegal characters
@@ -142,7 +143,7 @@ dumpFile = createDumpFile()
 loss_func = F.cross_entropy
 lr = 0.1
 epochs = 2
-max_layers = 3
+max_layers = 4
 
 
 COLOUR_CHANNEL_NUM = dataset.colour_channel_num
@@ -439,14 +440,22 @@ class Controller:
         #other are fed in internally
         
         #print("policy_network input state ", state)
+        #the first state will always be the same as previous and work out thenext ones
         currentState = state[0]
         
         actions = []
+        
+        #hardcode tha value of convolution
+        actionVal = np.zeros((1, 3), dtype=np.float32)
+        actionVal[np.arange(1), 0] = 1
+        #add the first value
+        actions.append(actionVal)
+        
         #reset the hidden layer
         hidden = self.agent.init_hidden()
         # we provide a flat list of chained input-output to the RNN
         #list of hyper params for each layer
-        for i in range(self.stateSpace.state_count_ * max_layers):
+        for i in range((self.stateSpace.state_count_ * max_layers)-1):
             #get the state id independent of layer
             #state_id = i % self.stateSpace.state_count_
             #get the state for the current i
@@ -480,8 +489,7 @@ class Controller:
             #print("Using categorical: m ", c, " action: ", action, "action val: ", action_idx, "log prob: ",c.log_prob(action), ": dims: ",self.policy_history.dim(), " other dims: ", c.log_prob(action).dim())
             #print("action_prob: ", action_prob)
             
-            
-            
+            #create encoding of the chosen action so it can be created into a net
             actionVal = np.zeros((1, 3), dtype=np.float32)
             actionVal[np.arange(1), action_idx] = action_idx + 1
             
@@ -1032,7 +1040,7 @@ def main():
     best_net = 0    #keep track of best nets
     best_net_acc = 0
     max_nets_to_test = 9999999999   #the maximum possible number of nets to explore (including invalid ones)
-    valid_nets_to_test = 20
+    valid_nets_to_test = 30
     net_values = list()
     net_results = list()
     
@@ -1047,7 +1055,7 @@ def main():
             print("Net is Invalid\n")
              #update the reinforce controller
             if SEARCH_STRAT == "RL_Search":
-                SearchObj.SetReward(-100)
+                SearchObj.SetReward(0)
         else:
             #build the layers
             layers = BuildNetworkFromParameters(layer_params)
@@ -1058,34 +1066,38 @@ def main():
             print("\nmade the selected net ID: ", valid_nets)
             print(net)
             
-            #Predict how well this network will perform
-            loss, acc = PredictNetworkPerformance(net, opt, nets_tested)
-            print("Finished prediction\n")
-            
-            #update the reinforce controller
-            if SEARCH_STRAT == "RL_Search":
-                SearchObj.SetReward(acc)
-            
-            #add to results
-            net_values.append(net)
-            net_results.append(acc)
-            
-            #print to logs
-            dumpFile.write(str(valid_nets) + "\n")
-            dumpFile.write(str(net) + "\n")
-            dumpFile.write(str(acc) + "\n")
-            
-            #keep track of best net
-            if acc > best_net_acc:
-                best_net_acc = acc
-                best_net = net
+            #check that we havn't done this net already
+            if net in net_values:
+                print("this net has already been produced so don't test again\n")
+            else:
+                #Predict how well this network will perform
+                loss, acc = PredictNetworkPerformance(net, opt, nets_tested)
+                print("Finished prediction\n")
                 
-            #increment number of valid nets found
-            valid_nets += 1
-            
-            #if we have seen enough valid nets then stop
-            if (valid_nets >= valid_nets_to_test):
-                break
+                #update the reinforce controller
+                if SEARCH_STRAT == "RL_Search":
+                    SearchObj.SetReward(acc*100)
+                
+                #add to results
+                net_values.append(net)
+                net_results.append(acc)
+                
+                #print to logs
+                dumpFile.write(str(valid_nets) + "\n")
+                dumpFile.write(str(net) + "\n")
+                dumpFile.write(str(acc) + "\n")
+                
+                #keep track of best net
+                if acc > best_net_acc:
+                    best_net_acc = acc
+                    best_net = net
+                    
+                #increment number of valid nets found
+                valid_nets += 1
+                
+                #if we have seen enough valid nets then stop
+                if (valid_nets >= valid_nets_to_test):
+                    break
     
     print("Best found net")
     print(best_net)

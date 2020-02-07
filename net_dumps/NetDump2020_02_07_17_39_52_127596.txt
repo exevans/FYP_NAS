@@ -1,0 +1,40 @@
+Successful nets:
+Search strategy: RL_Search
+Performance Predictor: Low_Fidelity
+0
+Sequential(
+  (preprocess): Lambda()
+  (Cons0): Conv2d(3, 16, kernel_size=(5, 5), stride=(1, 1))
+  (ReLu0): ReLU()
+  (Cons1): Conv2d(16, 16, kernel_size=(1, 1), stride=(1, 1))
+  (ReLu1): ReLU()
+  (Cons2): Conv2d(16, 16, kernel_size=(1, 1), stride=(1, 1))
+  (ReLu2): ReLU()
+  (postprocess): Lambda()
+  (FC): Linear(in_features=12544, out_features=10, bias=True)
+)
+tensor(0.2833)
+1
+Sequential(
+  (preprocess): Lambda()
+  (Cons0): Conv2d(3, 36, kernel_size=(1, 1), stride=(1, 1))
+  (ReLu0): ReLU()
+  (Cons1): Conv2d(36, 36, kernel_size=(3, 3), stride=(1, 1))
+  (ReLu1): ReLU()
+  (Cons2): Conv2d(36, 24, kernel_size=(3, 3), stride=(1, 1))
+  (ReLu2): ReLU()
+  (postprocess): Lambda()
+  (FC): Linear(in_features=18816, out_features=10, bias=True)
+)
+tensor(0.1000)
+2
+Sequential(
+  (preprocess): Lambda()
+  (Cons0): Conv2d(3, 36, kernel_size=(5, 5), stride=(3, 3))
+  (ReLu0): ReLU()
+  (Avg_Pool1): AvgPool2d(kernel_size=5, stride=1, padding=1)
+  (Avg_Pool2): AvgPool2d(kernel_size=5, stride=3, padding=0)
+  (postprocess): Lambda()
+  (FC): Linear(in_features=144, out_features=10, bias=True)
+)
+tensor(0.3885)

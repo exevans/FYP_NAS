@@ -1,0 +1,28 @@
+Successful nets:
+Search strategy: RL_Search
+Performance Predictor: Low_Fidelity
+0
+Sequential(
+  (preprocess): Lambda()
+  (Cons0): Conv2d(1, 16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (ReLu0): ReLU()
+  (Cons1): Conv2d(16, 36, kernel_size=(1, 1), stride=(3, 3))
+  (ReLu1): ReLU()
+  (Cons2): Conv2d(36, 36, kernel_size=(5, 5), stride=(1, 1))
+  (ReLu2): ReLU()
+  (postprocess): Lambda()
+  (FC): Linear(in_features=1296, out_features=10, bias=True)
+)
+tensor(0.8883)
+1
+Sequential(
+  (preprocess): Lambda()
+  (Cons0): Conv2d(1, 36, kernel_size=(5, 5), stride=(1, 1))
+  (ReLu0): ReLU()
+  (Max_Pool1): MaxPool2d(kernel_size=5, stride=1, padding=1, dilation=1, ceil_mode=False)
+  (Cons2): Conv2d(36, 36, kernel_size=(5, 5), stride=(1, 1))
+  (ReLu2): ReLU()
+  (postprocess): Lambda()
+  (FC): Linear(in_features=11664, out_features=10, bias=True)
+)
+tensor(0.7769)
